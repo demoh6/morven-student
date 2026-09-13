@@ -273,4 +273,163 @@ describe("Phase 2 - Resource authorization", () => {
     const direct = await fetch(`${server.baseUrl}/uploads/resources/somefile.txt`);
     assert.equal(direct.status, 404, "/uploads/resources must not be publicly served");
   });
+
+  it("enforces private resources with 6-digit access codes end-to-end", async () => {
+    const owner = await register(server.baseUrl, "pown");
+    const member = await register(server.baseUrl, "pmem");
+    const stranger = await register(server.baseUrl, "pstr");
+    const adminUser = await register(server.baseUrl, "padm");
+    await prisma.user.update({ where: { id: adminUser.id }, data: { role: "ADMIN" } });
+    const adminToken = await login(server.baseUrl, adminUser);
+    const authOf = (token) => ({ Authorization: `Bearer ${token}` });
+
+    // 1. Owner creates a PRIVATE resource and receives a fresh 6-digit code.
+    const createRes = await fetch(`${server.baseUrl}/api/resources`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(owner.accessToken) },
+      body: JSON.stringify({ title: "ملخص خاص", description: "سري", type: "file", isPrivate: true }),
+    });
+    assert.equal(createRes.status, 201);
+    const created = (await createRes.json()).resource;
+    assert.equal(created.isPrivate, true, "isPrivate flag returned on create");
+    assert.match(created.accessCode ?? "", /^\d{6}$/, "owner receives a 6-digit access code on create");
+    const accessCode = created.accessCode;
+
+    // 2. The code is never stored in plaintext.
+    const dbRow = await prisma.resource.findUnique({ where: { id: created.id } });
+    assert.ok(dbRow.accessCodeHash, "access code hash stored");
+    assert.ok(dbRow.accessCodeCiphertext, "access code ciphertext stored");
+    assert.notEqual(dbRow.accessCodeCiphertext, accessCode, "plaintext code is never stored");
+
+    // 3. Lists + detail stay private for non-owners.
+    const ownerList = await fetch(`${server.baseUrl}/api/resources`, { headers: authOf(owner.accessToken) });
+    const ownerListEntry = (await ownerList.json()).resources.find((r) => r.id === created.id);
+    assert.ok(ownerListEntry, "owner sees their own private resource in list");
+    assert.equal(ownerListEntry.accessCode, undefined, "list never leaks the code");
+
+    const memberList = await fetch(`${server.baseUrl}/api/resources`, { headers: authOf(member.accessToken) });
+    assert.ok(!(await memberList.json()).resources.some((r) => r.id === created.id), "private resource hidden from other members");
+
+    const memberDetail = await fetch(`${server.baseUrl}/api/resources/${created.id}`, { headers: authOf(member.accessToken) });
+    assert.equal(memberDetail.status, 403, "other members cannot open a private resource");
+    const locked = await memberDetail.json();
+    assert.equal(locked.code, "PRIVATE_RESOURCE", "error carries PRIVATE_RESOURCE code");
+    assert.equal(locked.error, "هذا المورد خاص");
+
+    const strangerFiles = await fetch(`${server.baseUrl}/api/resources/${created.id}/files`, { headers: authOf(stranger.accessToken) });
+    assert.equal(strangerFiles.status, 403, "files list is gated behind the code too");
+
+    // 4. Wrong code rejected; correct code unlocks (and never leaks the code).
+    const wrong = await fetch(`${server.baseUrl}/api/resources/${created.id}/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(member.accessToken) },
+      body: JSON.stringify({ code: "000000" }),
+    });
+    assert.equal(wrong.status, 403, "wrong code rejected");
+
+    const unlockRes = await fetch(`${server.baseUrl}/api/resources/${created.id}/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(member.accessToken) },
+      body: JSON.stringify({ code: accessCode }),
+    });
+    assert.equal(unlockRes.status, 200, "correct code unlocks");
+    const unlocked = (await unlockRes.json()).resource;
+    assert.equal(unlocked.accessCode, undefined, "unlocked member never receives the code itself");
+
+    // 5. After unlock: member sees it in their list and can download files.
+    const memberList2 = await fetch(`${server.baseUrl}/api/resources`, { headers: authOf(member.accessToken) });
+    assert.ok((await memberList2.json()).resources.some((r) => r.id === created.id), "unlocked resource visible to member");
+
+    const fd = new FormData();
+    fd.append("files", new Blob(["private payload"], { type: "text/plain" }), "secret.txt");
+    const upload = await withTimeout(
+      15000,
+      fetch(`${server.baseUrl}/api/resources/${created.id}/files`, {
+        method: "POST",
+        headers: authOf(owner.accessToken),
+        body: fd,
+      }),
+    );
+    assert.equal(upload.status, 201);
+    const fileId = (await upload.json()).files[0].id;
+
+    const memberFiles = await fetch(`${server.baseUrl}/api/resources/${created.id}/files`, { headers: authOf(member.accessToken) });
+    assert.equal(memberFiles.status, 200, "unlocked member can list files");
+    const dl = await fetch(
+      `${server.baseUrl}/api/resources/${created.id}/files/${fileId}/download`,
+      { headers: authOf(member.accessToken) },
+    );
+    assert.equal(dl.status, 200, "unlocked member can download");
+    const strangerDl = await fetch(
+      `${server.baseUrl}/api/resources/${created.id}/files/${fileId}/download`,
+      { headers: authOf(stranger.accessToken) },
+    );
+    assert.equal(strangerDl.status, 403, "stranger still cannot download");
+
+    // 6. Public → access endpoint rejected; stranger can open it directly.
+    const publicRes = await fetch(`${server.baseUrl}/api/resources/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authOf(owner.accessToken) },
+      body: JSON.stringify({ isPrivate: false }),
+    });
+    assert.equal(publicRes.status, 200);
+    assert.equal((await publicRes.json()).resource.isPrivate, false, "owner can make resource public");
+
+    const accessPublic = await fetch(`${server.baseUrl}/api/resources/${created.id}/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(stranger.accessToken) },
+      body: JSON.stringify({ code: "123456" }),
+    });
+    assert.equal(accessPublic.status, 400, "access endpoint rejected on public resource");
+
+    const strangerDetail = await fetch(`${server.baseUrl}/api/resources/${created.id}`, { headers: authOf(stranger.accessToken) });
+    assert.equal(strangerDetail.status, 200, "public resource is open to everyone");
+
+    // 7. Re-privatizing mints a fresh access code.
+    const rePrivate = await fetch(`${server.baseUrl}/api/resources/${created.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authOf(owner.accessToken) },
+      body: JSON.stringify({ isPrivate: true }),
+    });
+    assert.equal(rePrivate.status, 200);
+    const rePrivateBody = (await rePrivate.json()).resource;
+    assert.equal(rePrivateBody.isPrivate, true);
+    assert.match(rePrivateBody.accessCode ?? "", /^\d{6}$/, "re-privatizing returns a fresh 6-digit code");
+    assert.notEqual(rePrivateBody.accessCode, accessCode, "new code differs from the old one");
+
+    // 8. Admin bypasses the code (can open + sees the code like the owner).
+    const adminDetail = await fetch(`${server.baseUrl}/api/resources/${created.id}`, { headers: authOf(adminToken) });
+    assert.equal(adminDetail.status, 200, "admin opens any private resource");
+    const adminBody = (await adminDetail.json()).resource;
+    assert.equal(adminBody.isPrivate, true);
+    assert.match(adminBody.accessCode ?? "", /^\d{6}$/, "admin receives the code like the owner");
+
+    // 9. Adding a resource by code alone (no resource ID) grants access in one step.
+    const addUnknown = await fetch(`${server.baseUrl}/api/resources/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(stranger.accessToken) },
+      body: JSON.stringify({ code: "999999" }),
+    });
+    assert.equal(addUnknown.status, 404, "unknown code rejected");
+
+    const addByCode = await fetch(`${server.baseUrl}/api/resources/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(stranger.accessToken) },
+      body: JSON.stringify({ code: rePrivateBody.accessCode }),
+    });
+    assert.equal(addByCode.status, 200, "correct code adds the private resource");
+    const added = (await addByCode.json()).resource;
+    assert.equal(added.id, created.id, "added resource matches the owner's private resource");
+    assert.equal(added.accessCode, undefined, "added resource never leaks the code to a non-owner");
+
+    const strangerList = await fetch(`${server.baseUrl}/api/resources`, { headers: authOf(stranger.accessToken) });
+    assert.ok((await strangerList.json()).resources.some((r) => r.id === created.id), "resource now visible to stranger");
+
+    const addAgain = await fetch(`${server.baseUrl}/api/resources/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authOf(stranger.accessToken) },
+      body: JSON.stringify({ code: rePrivateBody.accessCode }),
+    });
+    assert.equal(addAgain.status, 200, "re-adding an already-unlocked code stays idempotent (200)");
+  });
 });

@@ -30,6 +30,10 @@ import {
   Link2,
   ExternalLink as ExternalLinkIcon,
   Pencil,
+  Copy,
+  Check,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 const MAX_FILES = 10;
@@ -48,7 +52,9 @@ export default function ResourceDetailPage() {
   const resources = useResourcesStore((s) => s.resources);
   const contentMap = useResourcesStore((s) => s.contentMap);
   const loading = useResourcesStore((s) => s.loading);
+  const lockedResourceId = useResourcesStore((s) => s.lockedResourceId);
   const fetchResourceDetail = useResourcesStore((s) => s.fetchResourceDetail);
+  const unlockResource = useResourcesStore((s) => s.unlockResource);
   const deleteResource = useResourcesStore((s) => s.deleteResource);
   const editResource = useResourcesStore((s) => s.editResource);
   const addFiles = useResourcesStore((s) => s.addFiles);
@@ -76,6 +82,12 @@ export default function ResourceDetailPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editType, setEditType] = useState<ResourceType>('file');
+  const [editIsPrivate, setEditIsPrivate] = useState(false);
+
+  const [accessCode, setAccessCode] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [copiedAccessCode, setCopiedAccessCode] = useState(false);
 
   useEffect(() => {
     if (resourceId) {
@@ -84,6 +96,7 @@ export default function ResourceDetailPage() {
           setEditTitle(r.title);
           setEditDescription(r.description ?? '');
           setEditType(r.type);
+          setEditIsPrivate(r.isPrivate);
         }
       });
     }
@@ -91,6 +104,72 @@ export default function ResourceDetailPage() {
   }, [resourceId]);
 
   const resource = resourceId ? resources.find((r) => r.id === resourceId) : undefined;
+
+  const handleUnlock = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!resourceId || accessCode.length !== 6) return;
+    setUnlocking(true);
+    setUnlockError(null);
+    try {
+      await unlockResource(resourceId, accessCode);
+      const current = useResourcesStore.getState().resources.find((r) => r.id === resourceId);
+      if (current) {
+        setEditTitle(current.title);
+        setEditDescription(current.description ?? '');
+        setEditType(current.type);
+        setEditIsPrivate(current.isPrivate);
+      }
+    } catch (err) {
+      setUnlockError(err instanceof Error ? err.message : 'حدث خطأ في فتح المورد');
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
+  const visibilityOptions = [
+    { value: 'public', label: 'عام' },
+    { value: 'private', label: 'خاص' },
+  ];
+
+  // Lock screen — the resource exists in the store only after a successful
+  // access-code entry; before that it's hidden behind the 403 + code UI.
+  if (!loading && !resource && resourceId && lockedResourceId === resourceId) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16 text-center" dir="rtl">
+        <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center text-amber-500 dark:text-amber-400 mx-auto mb-4">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">هذا المورد خاص</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+          أدخل رمز الوصول المكوّن من 6 أرقام لعرض محتوى هذا المورد
+        </p>
+        <form onSubmit={handleUnlock} className="space-y-4 text-start">
+          <Input
+            label="رمز الوصول"
+            value={accessCode}
+            onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            dir="ltr"
+          />
+          {unlockError && (
+            <p className="text-sm text-red-500 text-center" role="alert">{unlockError}</p>
+          )}
+          <Button
+            type="submit"
+            loading={unlocking}
+            disabled={accessCode.length !== 6}
+            className="w-full"
+            icon={<Unlock className="w-4 h-4" />}
+          >
+            فتح المورد
+          </Button>
+          <Link to="/connect/resources" className="block">
+            <Button type="button" variant="ghost" className="w-full">العودة للموارد</Button>
+          </Link>
+        </form>
+      </div>
+    );
+  }
 
   if (!loading && !resource) {
     return (
@@ -119,6 +198,13 @@ export default function ResourceDetailPage() {
   const Icon = typeIcons[r.type];
   const canManage = canManageResource(user, r);
   const content = getContent(r.id);
+
+  const handleCopyAccessCode = () => {
+    if (!r.accessCode) return;
+    navigator.clipboard.writeText(r.accessCode);
+    setCopiedAccessCode(true);
+    setTimeout(() => setCopiedAccessCode(false), 1500);
+  };
   const files = content.files;
   const notes = content.notes;
   const links = content.links;
@@ -214,6 +300,7 @@ export default function ResourceDetailPage() {
         title: editTitle.trim(),
         description: editDescription.trim(),
         type: editType,
+        isPrivate: editIsPrivate,
       });
       setShowEdit(false);
       await fetchResourceDetail(r.id);
@@ -288,6 +375,26 @@ export default function ResourceDetailPage() {
                 {typeLabels[r.type]}
               </span>
             </div>
+
+            {canManage && r.isPrivate && (
+              <div className="mt-4 flex items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-800/40">
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs text-amber-600 dark:text-amber-400 block mb-0.5">رمز الوصول</span>
+                  <span className="text-sm font-mono font-bold text-amber-700 dark:text-amber-300 tracking-wider" dir="ltr">
+                    {r.accessCode ?? 'غير متوفر'}
+                  </span>
+                </div>
+                <button
+                  onClick={handleCopyAccessCode}
+                  disabled={!r.accessCode}
+                  className={`p-2 rounded-lg transition-colors ${r.accessCode ? 'text-amber-500 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30' : 'text-gray-300 dark:text-gray-600'}`}
+                  title="نسخ الرمز"
+                  aria-label="نسخ رمز الوصول"
+                >
+                  {copiedAccessCode ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
 
             {canManage && (
               <div className="mt-4 flex flex-wrap gap-2">
@@ -662,6 +769,17 @@ export default function ResourceDetailPage() {
             onChange={(e) => setEditType(e.target.value as ResourceType)}
             options={typeOptions}
           />
+          <Select
+            label="الظهور"
+            value={editIsPrivate ? 'private' : 'public'}
+            onChange={(e) => setEditIsPrivate(e.target.value === 'private')}
+            options={visibilityOptions}
+          />
+          {canManage && r.isPrivate && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+              عند تحويل المورد إلى عام سيتم حذف رمز الوصول ولم يعد الوصول مقيداً لأي طالب.
+            </p>
+          )}
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setShowEdit(false)} className="flex-1">إلغاء</Button>
             <Button type="submit" className="flex-1" icon={<Pencil className="w-4 h-4" />}>حفظ</Button>

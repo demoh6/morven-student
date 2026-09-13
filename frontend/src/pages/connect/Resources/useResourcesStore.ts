@@ -6,6 +6,8 @@ import {
   createResourceApi,
   updateResourceApi,
   deleteResourceApi,
+  accessResourceApi,
+  accessResourceByCodeApi,
   uploadResourceFiles,
   deleteResourceFileApi,
   downloadResourceFile,
@@ -49,11 +51,22 @@ interface ResourcesStore {
   loading: boolean;
   error: string | null;
 
+  /** While non-null the detail page renders the 6-digit unlock form instead of the normal view. */
+  lockedResourceId: string | null;
+
   fetchResources: () => Promise<void>;
   fetchResourceDetail: (id: string) => Promise<Resource | undefined>;
-  createResource: (input: { title: string; description?: string; type: ResourceType }) => Promise<Resource>;
-  editResource: (id: string, input: { title?: string; description?: string | null; type?: ResourceType }) => Promise<void>;
+  createResource: (input: { title: string; description?: string; type: ResourceType; isPrivate?: boolean }) => Promise<Resource>;
+  editResource: (id: string, input: { title?: string; description?: string | null; type?: ResourceType; isPrivate?: boolean }) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
+
+  /** Unlocks a private resource with its 6-digit access code. On success the
+   *  store is updated (content + list entry) and `lockedResourceId` is cleared.
+   *  On wrong code the backend error is thrown so the caller can display it. */
+  unlockResource: (id: string, code: string) => Promise<void>;
+
+  /** Adds a private resource to the caller's list using ONLY its 6-digit code. */
+  addResourceByCode: (code: string) => Promise<Resource>;
 
   getContent: (id: string) => ResourceContent;
 
@@ -70,11 +83,29 @@ interface ResourcesStore {
 
 const emptyContent: ResourceContent = { files: [], notes: [], links: [] };
 
+function upsertInStore(
+  resources: Resource[],
+  contentMap: Record<string, ResourceContent>,
+  detail: Resource & { files: ResourceFile[]; notes: ResourceNote[]; links: ResourceLink[] },
+) {
+  const { files, notes, links, ...base } = detail;
+  return {
+    resources: resources.some((r) => r.id === base.id)
+      ? resources.map((r) => (r.id === base.id ? base : r))
+      : [base, ...resources],
+    contentMap: {
+      ...contentMap,
+      [base.id]: { files, notes, links },
+    },
+  };
+}
+
 export const useResourcesStore = create<ResourcesStore>((set, get) => ({
   resources: [],
   contentMap: {},
   loading: false,
   error: null,
+  lockedResourceId: null,
 
   fetchResources: async () => {
     set({ loading: true, error: null });
@@ -93,19 +124,18 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const detail = await getResource(id);
-      const { files, notes, links, ...base } = detail;
       set((s) => ({
         loading: false,
-        resources: s.resources.some((r) => r.id === id)
-          ? s.resources.map((r) => (r.id === id ? base : r))
-          : [base, ...s.resources],
-        contentMap: {
-          ...s.contentMap,
-          [id]: { files, notes, links },
-        },
+        lockedResourceId: null,
+        ...upsertInStore(s.resources, s.contentMap, detail),
       }));
+      const { files, notes, links, ...base } = detail;
       return base;
     } catch (err) {
+      if ((err as { code?: string }).code === 'PRIVATE_RESOURCE') {
+        set({ loading: false, error: null, lockedResourceId: id });
+        return undefined;
+      }
       set({
         loading: false,
         error: err instanceof Error ? err.message : 'حدث خطأ في جلب المورد',
@@ -140,6 +170,24 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
         contentMap,
       };
     });
+  },
+
+  unlockResource: async (id, code) => {
+    const detail = await accessResourceApi(id, code);
+    set((s) => ({
+      lockedResourceId: null,
+      ...upsertInStore(s.resources, s.contentMap, detail),
+    }));
+  },
+
+  addResourceByCode: async (code) => {
+    const detail = await accessResourceByCodeApi(code);
+    const { files, notes, links, ...base } = detail;
+    set((s) => ({
+      lockedResourceId: null,
+      ...upsertInStore(s.resources, s.contentMap, detail),
+    }));
+    return base;
   },
 
   getContent: (id) => get().contentMap[id] || emptyContent,

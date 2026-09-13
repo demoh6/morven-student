@@ -12,6 +12,9 @@ export interface Resource {
   uploadedAt: string;
   createdAt: string;
   updatedAt: string;
+  isPrivate: boolean;
+  /** Present only when the caller is the owner or a system admin. */
+  accessCode?: string | null;
 }
 
 export const typeLabels: Record<ResourceType, string> = {

@@ -7,7 +7,8 @@ import { Input, TextArea, Select } from '@/components/UI/Input';
 import { Button } from '@/components/UI/Button';
 import { Tooltip } from '@/components/UI/Tooltip';
 import { SearchBar } from '@/components/UI/SearchBar';
-import { BookOpen, ChevronLeft, Plus, Info, SearchX } from 'lucide-react';
+import { Chip } from '@/components/UI/Chip';
+import { BookOpen, ChevronLeft, Plus, Info, SearchX, Lock, KeyRound } from 'lucide-react';
 import {
   typeLabels,
   typeIcons,
@@ -32,11 +33,19 @@ const infoPoints = [
     description: 'الموارد هي مواد تعليمية مشتركة يقدمها طلاب الملتقى مثل الملخصات والأسئلة والروابط المفيدة.',
   },
   {
-    title: 'كيف أضيف مادة؟',
+    title: 'كيف أنشئ مورد؟',
     description: 'اضغط زر إنشاء (+) أعلى الصفحة، ثم أدخل اسم المادة ووصفها واختر تصنيفها ونوعها.',
   },
   {
-    title: 'كيف أستخدامها؟',
+    title: 'كيف أضيف مورداً بالكود؟',
+    description: 'اضغط زر المفتاح (الانضمام بالكود) أعلى الصفحة، ثم أدخل رمز الوصول المكوّن من 6 أرقام ليظهر المورد الخاص في قائمتك.',
+  },
+  {
+    title: 'الموارد العامة والخاصة',
+    description: 'عند إنشاء مورد يمكنك اختيار ظهوره: عام يظهر للجميع، أو خاص لا يظهر إلا لمن يملك رمز الوصول. المالك يحصل على كود من 6 أرقام يشاركه مع من يريد، ويمكن للمستخدمين فتح المورد الخاص بالكود أو الانضمام إليه مباشرة.',
+  },
+  {
+    title: 'كيف أستخدمها؟',
     description: 'ابحث عن الموارد بالاسم بكتابة كلمة في خانة البحث أعلى الصفحة، أو تصفح القائمة أدناه مباشرة.',
   },
   {
@@ -50,14 +59,24 @@ export default function ResourcesPage() {
   const loading = useResourcesStore((s) => s.loading);
   const fetchResources = useResourcesStore((s) => s.fetchResources);
   const createResource = useResourcesStore((s) => s.createResource);
+  const addResourceByCode = useResourcesStore((s) => s.addResourceByCode);
   const [query, setQuery] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [showAddByCode, setShowAddByCode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [bindCode, setBindCode] = useState('');
+  const [binding, setBinding] = useState(false);
+  const [bindError, setBindError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<ResourceType>('file');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const visibilityOptions = [
+    { value: 'public', label: 'عام' },
+    { value: 'private', label: 'خاص' },
+  ];
 
   useEffect(() => {
     void fetchResources();
@@ -78,15 +97,33 @@ export default function ResourcesPage() {
         title: name.trim(),
         description: description.trim(),
         type,
+        isPrivate,
       });
       setName('');
       setDescription('');
       setType('file');
+      setIsPrivate(false);
       setShowCreate(false);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'حدث خطأ في إنشاء المورد');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddByCode = async (e: FormEvent) => {
+    e.preventDefault();
+    if (bindCode.length !== 6) return;
+    setBinding(true);
+    setBindError(null);
+    try {
+      await addResourceByCode(bindCode);
+      setBindCode('');
+      setShowAddByCode(false);
+    } catch (err) {
+      setBindError(err instanceof Error ? err.message : 'حدث خطأ في إضافة المورد');
+    } finally {
+      setBinding(false);
     }
   };
 
@@ -127,6 +164,17 @@ export default function ResourcesPage() {
                 icon={<Plus className="w-4 h-4" />}
                 onClick={() => setShowCreate(true)}
                 aria-label="إنشاء مورد جديد"
+                className="shrink-0 bg-gradient-to-br from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 !shadow-amber-500/25 dark:!shadow-amber-500/40"
+              >
+                {null}
+              </Button>
+            </Tooltip>
+            <Tooltip content="إضافة مورد بالكود" position="top">
+              <Button
+                size="sm"
+                icon={<KeyRound className="w-4 h-4" />}
+                onClick={() => setShowAddByCode(true)}
+                aria-label="إضافة مورد بالكود"
                 className="shrink-0 bg-gradient-to-br from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 !shadow-amber-500/25 dark:!shadow-amber-500/40"
               >
                 {null}
@@ -214,6 +262,9 @@ export default function ResourcesPage() {
                             {r.uploadedBy}
                           </span>
                           <span>{typeLabels[r.type]}</span>
+                          {r.isPrivate && (
+                            <Chip label="خاص" variant="warning" icon={<Lock className="w-3 h-3" />} className="!px-2 !py-0.5 !text-[10px]" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -252,12 +303,51 @@ export default function ResourcesPage() {
             onChange={(e) => setType(e.target.value as ResourceType)}
             options={typeOptions}
           />
+          <Select
+            label="الظهور"
+            value={isPrivate ? 'private' : 'public'}
+            onChange={(e) => setIsPrivate(e.target.value === 'private')}
+            options={visibilityOptions}
+          />
           {createError && (
             <p className="text-sm text-red-500" role="alert">{createError}</p>
           )}
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setShowCreate(false)} className="flex-1">إلغاء</Button>
-            <Button type="submit" loading={saving} className="flex-1" icon={<Plus className="w-4 h-4" />}>إنشاء</Button>
+            <Button type="submit" loading={saving} className="flex-1 bg-gradient-to-br from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 !shadow-amber-500/25 dark:!shadow-amber-500/40" icon={<Plus className="w-4 h-4" />}>إنشاء</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Add Resource by Code Modal */}
+      <Modal
+        open={showAddByCode}
+        onClose={() => { setShowAddByCode(false); setBindError(null); }}
+        title="إضافة مورد بالكود"
+        description="أدخل رمز الوصول المكوّن من 6 أرقام لإضافة مورد خاص إلى قائمتك"
+      >
+        <form onSubmit={handleAddByCode} className="space-y-4">
+          <Input
+            label="رمز الوصول"
+            value={bindCode}
+            onChange={(e) => setBindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            dir="ltr"
+          />
+          {bindError && (
+            <p className="text-sm text-red-500" role="alert">{bindError}</p>
+          )}
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setShowAddByCode(false)} className="flex-1">إلغاء</Button>
+            <Button
+              type="submit"
+              loading={binding}
+              disabled={bindCode.length !== 6}
+              className="flex-1 bg-gradient-to-br from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 !shadow-amber-500/25 dark:!shadow-amber-500/40"
+              icon={<KeyRound className="w-4 h-4" />}
+            >
+              إضافة
+            </Button>
           </div>
         </form>
       </Modal>
@@ -269,7 +359,7 @@ export default function ResourcesPage() {
         title="حول الموارد"
         description="كل ما تحتاج معرفته عن صفحة الموارد"
       >
-        <div className="space-y-4">
+        <div className="space-y-4 max-h-[65vh] overflow-y-auto pe-1">
           {infoPoints.map((point) => (
             <div
               key={point.title}

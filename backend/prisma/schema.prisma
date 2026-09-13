@@ -27,6 +27,7 @@ model User {
   pomodoroSessions PomodoroSession[]
   achievements  UserAchievement?
   resources     Resource[]     @relation("ResourceOwner")
+  resourceAccesses ResourceAccess[]
   readNotifications UserNotificationRead[]
   suggestions   Suggestion[]
   dhikrSubmissions DhikrSubmission[]
@@ -253,20 +254,43 @@ model PomodoroSession {
 }
 
 model Resource {
-  id          String          @id @default(uuid())
-  title       String
-  description String?
-  type        ResourceType
-  ownerId     String          @map("owner_id")
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
-  owner       User            @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  files       ResourceFile[]
-  notes       ResourceNote[]
-  links       ResourceLink[]
+  id                   String          @id @default(uuid())
+  title                String
+  description          String?
+  type                 ResourceType
+  ownerId              String          @map("owner_id")
+  // Privacy: PUBLIC (false) resources behave exactly as before. PRIVATE (true)
+  // resources are hidden from other users until they prove ownership of the
+  // resource's 6-digit access code. The code is never stored in plain text:
+  // a SHA-256 hash guarantees uniqueness (active-code collisions) and enables
+  // constant-time validation, while an AES-256-GCM ciphertext lets the owner
+  // view/copy their code again later.
+  isPrivate            Boolean         @default(false) @map("is_private")
+  accessCodeHash       String?         @unique @map("access_code_hash")
+  accessCodeCiphertext String?         @map("access_code_ciphertext")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+  owner                User            @relation("ResourceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  access               ResourceAccess[]
+  files                ResourceFile[]
+  notes                ResourceNote[]
+  links                ResourceLink[]
 
   @@index([ownerId])
   @@map("resources")
+}
+
+model ResourceAccess {
+  id         String   @id @default(uuid())
+  resourceId String   @map("resource_id")
+  userId     String   @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, userId])
+  @@index([userId])
+  @@map("resource_accesses")
 }
 
 model ResourceFile {

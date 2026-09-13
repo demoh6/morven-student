@@ -6,11 +6,14 @@ import {
   updateResourceSchema,
   addNoteSchema,
   addLinkSchema,
+  accessPrivateResourceSchema,
   listResources,
   createResource,
   getResourceDetails,
   updateResource,
   deleteResource,
+  accessPrivateResource,
+  accessPrivateResourceByCode,
   addFiles,
   listFiles,
   getDownloadableFile,
@@ -30,17 +33,18 @@ const UPLOADS_DIR = path.resolve(__dirname, "..", "..", "uploads", "resources");
 
 function handleResourceError(err: unknown, res: Response): void {
   if (err instanceof ResourceError) {
-    res.status(err.status).json({ error: err.message });
+    res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
     return;
   }
   console.error("Resource error:", err);
   res.status(500).json({ error: "حدث خطأ في الخادم" });
 }
 
-// GET /api/resources — list all resources (any authenticated user)
+// GET /api/resources — list visible resources (any authenticated user)
 router.get("/api/resources", authenticate, async (_req: Request, res: Response) => {
   try {
-    const resources = await listResources();
+    if (!_req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+    const resources = await listResources(_req.user.sub, _req.user.role);
     res.json({ resources });
   } catch (err) {
     handleResourceError(err, res);
@@ -72,7 +76,50 @@ router.post("/api/resources", authenticate, async (req: Request, res: Response) 
 // GET /api/resources/:resourceId — get resource details incl. content
 router.get("/api/resources/:resourceId", authenticate, async (req: Request<{ resourceId: string }>, res: Response) => {
   try {
-    const resource = await getResourceDetails(req.params.resourceId);
+    if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+    const resource = await getResourceDetails(req.params.resourceId, req.user.sub, req.user.role);
+    res.json({ resource });
+  } catch (err) {
+    handleResourceError(err, res);
+  }
+});
+
+// POST /api/resources/access — add a private resource to the caller's list
+// using ONLY its 6-digit code (no resource ID required).
+router.post("/api/resources/access", authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+
+    const parsed = accessPrivateResourceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
+      return;
+    }
+
+    const resource = await accessPrivateResourceByCode(req.user.sub, req.user.role, parsed.data.code);
+    res.json({ resource });
+  } catch (err) {
+    handleResourceError(err, res);
+  }
+});
+
+// POST /api/resources/:resourceId/access — unlock a private resource with a 6-digit code
+router.post("/api/resources/:resourceId/access", authenticate, async (req: Request<{ resourceId: string }>, res: Response) => {
+  try {
+    if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+
+    const parsed = accessPrivateResourceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0].message });
+      return;
+    }
+
+    const resource = await accessPrivateResource(
+      req.params.resourceId,
+      req.user.sub,
+      req.user.role,
+      parsed.data.code,
+    );
     res.json({ resource });
   } catch (err) {
     handleResourceError(err, res);
@@ -120,7 +167,8 @@ router.delete("/api/resources/:resourceId", authenticate, async (req: Request<{ 
 // GET /api/resources/:resourceId/files — list resource files
 router.get("/api/resources/:resourceId/files", authenticate, async (req: Request<{ resourceId: string }>, res: Response) => {
   try {
-    const files = await listFiles(req.params.resourceId);
+    if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+    const files = await listFiles(req.params.resourceId, req.user.sub, req.user.role);
     res.json({ files });
   } catch (err) {
     handleResourceError(err, res);
@@ -166,7 +214,13 @@ router.get(
   authenticate,
   async (req: Request<{ resourceId: string; fileId: string }>, res: Response) => {
     try {
-      const file = await getDownloadableFile(req.params.resourceId, req.params.fileId);
+      if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
+      const file = await getDownloadableFile(
+        req.params.resourceId,
+        req.params.fileId,
+        req.user.sub,
+        req.user.role,
+      );
       const filePath = path.join(UPLOADS_DIR, path.basename(file.storagePath));
       if (!fs.existsSync(filePath)) {
         res.status(404).json({ error: "الملف غير موجود" });
