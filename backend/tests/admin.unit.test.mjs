@@ -9,6 +9,12 @@ describe("admin role validation", () => {
     if (parsed.success) assert.equal(parsed.data.role, "ADMIN");
   });
 
+  it("accepts SUB_ADMIN", () => {
+    const parsed = updateRoleSchema.safeParse({ role: "SUB_ADMIN" });
+    assert.equal(parsed.success, true);
+    if (parsed.success) assert.equal(parsed.data.role, "SUB_ADMIN");
+  });
+
   it("accepts USER", () => {
     const parsed = updateRoleSchema.safeParse({ role: "USER" });
     assert.equal(parsed.success, true);

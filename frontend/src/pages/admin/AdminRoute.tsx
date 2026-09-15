@@ -2,23 +2,32 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole, isMainAdminRole } from '@/pages/auth/roles';
 
 interface AdminRouteProps {
   children: React.ReactNode;
+  /** Only the main ADMIN may enter (administrative role management). */
+  requireMainAdmin?: boolean;
 }
 
-export function AdminRoute({ children }: AdminRouteProps) {
+export function AdminRoute({ children, requireMainAdmin = false }: AdminRouteProps) {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
 
+  const allowed = user
+    ? requireMainAdmin
+      ? isMainAdminRole(user.role)
+      : isAdminRole(user.role)
+    : false;
+
   useEffect(() => {
-    if (user && user.role !== 'ADMIN') {
+    if (user && !allowed) {
       const t = setTimeout(() => navigate('/', { replace: true }), 4000);
       return () => clearTimeout(t);
     }
-  }, [user, navigate]);
+  }, [user, allowed, navigate]);
 
-  if (!user || user.role !== 'ADMIN') {
+  if (!user || !allowed) {
     return (
       <ProtectedRoute>
         <div className="min-h-[60vh] flex flex-col items-center justify-center px-4 text-center">

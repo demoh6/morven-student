@@ -1,6 +1,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import prisma from "../lib/prisma";
+import { isAdminRole } from "../lib/roles";
 import { Prisma, GroupRole } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -33,10 +34,10 @@ export const MAX_GROUPS_PER_USER = 3;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** A system ADMIN (User.role === "ADMIN") has management access to every Group,
- *  regardless of membership. */
+/** A system ADMIN or SUB_ADMIN (User.role) has management access to every
+ *  Group, regardless of membership. */
 export function isGlobalAdmin(userRole: string | undefined): boolean {
-  return userRole === "ADMIN";
+  return isAdminRole(userRole);
 }
 
 /**
@@ -98,7 +99,7 @@ function sanitizeGroup(group: {
 // ---------------------------------------------------------------------------
 
 export async function createGroup(userId: string, userRole: string, input: z.infer<typeof createGroupSchema>) {
-  // Platform ADMIN (User.role === "ADMIN") is exempt from the 3-group limit.
+  // Platform ADMIN/SUB_ADMIN (User.role) is exempt from the 3-group limit.
   const membershipCount = await prisma.groupMember.count({ where: { userId } });
   if (!isGlobalAdmin(userRole) && membershipCount >= MAX_GROUPS_PER_USER) {
     throw new GroupError("لقد وصلت إلى الحد الأقصى من المجموعات (3)", 400);
@@ -138,7 +139,7 @@ export async function joinGroup(userId: string, userRole: string, joinCode: stri
     throw new GroupError("أنت عضو بالفعل في هذه المجموعة", 409);
   }
 
-  // Platform ADMIN (User.role === "ADMIN") is exempt from the 3-group limit.
+  // Platform ADMIN/SUB_ADMIN (User.role) is exempt from the 3-group limit.
   const membershipCount = await prisma.groupMember.count({ where: { userId } });
   if (!isGlobalAdmin(userRole) && membershipCount >= MAX_GROUPS_PER_USER) {
     throw new GroupError("لقد وصلت إلى الحد الأقصى من المجموعات (3)", 400);

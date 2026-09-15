@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNotificationStore, type Notification } from '@/components/Layout/Header/Notification/useNotificationStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole } from '@/pages/auth/roles';
 import { useAppStore } from '@/store/useAppStore';
 import { Bell, Megaphone, RefreshCw, Info, X, Plus, Trash2 } from 'lucide-react';
 
@@ -43,7 +44,7 @@ export function NotificationsPanel({ open, onClose }: NotificationsPanelProps) {
   const user = useAuthStore((s) => s.user);
   const addToast = useAppStore((s) => s.addNotification);
 
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = isAdminRole(user?.role);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [title, setTitle] = useState('');

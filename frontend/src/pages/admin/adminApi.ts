@@ -19,7 +19,7 @@ export async function listUsers(): Promise<AdminUser[]> {
 
 export async function updateUserRole(
   userId: string,
-  role: 'ADMIN' | 'USER',
+  role: 'ADMIN' | 'SUB_ADMIN' | 'USER',
 ): Promise<AdminUser> {
   const data = await authRequest<{ user: AdminUser }>(
     `/api/admin/users/${encodeURIComponent(userId)}/role`,

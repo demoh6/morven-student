@@ -9,7 +9,7 @@ import {
   unmarkNotificationRead,
 } from "../services/notification.service";
 import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/requireRole";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -103,11 +103,11 @@ router.delete(
   }
 );
 
-// POST /api/notifications — create a GLOBAL notification (ADMIN only)
+// POST /api/notifications — create a GLOBAL notification (ADMIN or SUB_ADMIN only)
 router.post(
   "/api/notifications",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request, res: Response) => {
     try {
       if (!req.user) {
@@ -131,11 +131,11 @@ router.post(
   }
 );
 
-// DELETE /api/notifications/:id — delete a GLOBAL notification (ADMIN only)
+// DELETE /api/notifications/:id — delete a GLOBAL notification (ADMIN or SUB_ADMIN only)
 router.delete(
   "/api/notifications/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;

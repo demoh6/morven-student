@@ -106,6 +106,7 @@ model PasswordResetToken {
 
 enum Role {
   USER
+  SUB_ADMIN
   ADMIN
 }
 

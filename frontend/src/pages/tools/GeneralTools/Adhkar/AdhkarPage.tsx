@@ -19,6 +19,7 @@ import {
   applyOfficialMutations,
 } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarApprovedStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole } from '@/pages/auth/roles';
 import { useAppStore } from '@/store/useAppStore';
 import {
   deleteDhikrSubmission,
@@ -59,7 +60,7 @@ function useDhikrAdminActions() {
   const [deleting, setDeleting] = useState<Dhikr | null>(null);
   const [deletingInFlight, setDeletingInFlight] = useState(false);
 
-  const canManage = user?.role === 'ADMIN';
+  const canManage = isAdminRole(user?.role);
 
   const toEdited = (dhikr: Dhikr): EditedDhikr => {
     const isApproved = dhikr.id.startsWith('sub-');

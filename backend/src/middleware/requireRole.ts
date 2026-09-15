@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { ADMIN_ROLES, ROLE_ADMIN } from "../lib/roles";
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -14,4 +15,17 @@ export function requireRole(...roles: string[]) {
 
     next();
   };
+}
+
+/**
+ * ADMIN-only guard. Administrative role management (promote/demote admins,
+ * manage the administrator system) must ALWAYS use this, never requireAdmin.
+ */
+export function requireMainAdmin() {
+  return requireRole(ROLE_ADMIN);
+}
+
+/** ADMIN + SUB_ADMIN guard. All normal admin operations use this. */
+export function requireAdmin() {
+  return requireRole(...ADMIN_ROLES);
 }

@@ -14,7 +14,7 @@ import {
   AdhkarError,
 } from "../services/adhkar.service";
 import { authenticate, optionalAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/requireRole";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -69,11 +69,11 @@ router.get(
   }
 );
 
-// GET /api/admin/adhkar/submissions — list all submissions with user info (ADMIN only)
+// GET /api/admin/adhkar/submissions — list all submissions with user info (ADMIN or SUB_ADMIN only)
 router.get(
   "/api/admin/adhkar/submissions",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (_req: Request, res: Response) => {
     try {
       const submissions = await listDhikrSubmissions();
@@ -85,11 +85,11 @@ router.get(
   }
 );
 
-// POST /api/admin/adhkar/submissions/:id/approve — approve a submission (ADMIN only)
+// POST /api/admin/adhkar/submissions/:id/approve — approve a submission (ADMIN or SUB_ADMIN only)
 router.post(
   "/api/admin/adhkar/submissions/:id/approve",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       if (!req.user) {
@@ -114,12 +114,12 @@ router.post(
   }
 );
 
-// POST /api/admin/adhkar/submissions/:id/reject — reject a submission (ADMIN only).
+// POST /api/admin/adhkar/submissions/:id/reject — reject a submission (ADMIN or SUB_ADMIN only).
 // Sends a rejection notification ONLY to the submitting user.
 router.post(
   "/api/admin/adhkar/submissions/:id/reject",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       if (!req.user) {
@@ -144,12 +144,12 @@ router.post(
   }
 );
 
-// PATCH /api/admin/adhkar/submissions/:id — edit a user submission's content (ADMIN only).
+// PATCH /api/admin/adhkar/submissions/:id — edit a user submission's content (ADMIN or SUB_ADMIN only).
 // Used to change the text of an already-visible (approved) dhikr card in place.
 router.patch(
   "/api/admin/adhkar/submissions/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;
@@ -181,11 +181,11 @@ router.patch(
   }
 );
 
-// DELETE /api/admin/adhkar/submissions/:id — permanently remove a submission (ADMIN only).
+// DELETE /api/admin/adhkar/submissions/:id — permanently remove a submission (ADMIN or SUB_ADMIN only).
 router.delete(
   "/api/admin/adhkar/submissions/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;
@@ -207,12 +207,12 @@ router.delete(
 );
 
 // PATCH /api/admin/adhkar/official/:id — persist an admin edit of a bundled
-// official dhikr (ADMIN only). The bundled dataset is never modified; the
+// official dhikr (ADMIN or SUB_ADMIN only). The bundled dataset is never modified; the
 // override is merged over it at render time and served to everyone.
 router.patch(
   "/api/admin/adhkar/official/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;
@@ -244,11 +244,11 @@ router.patch(
 );
 
 // DELETE /api/admin/adhkar/official/:id — hide a bundled official dhikr for
-// everyone by recording a tombstone (ADMIN only). Idempotent.
+// everyone by recording a tombstone (ADMIN or SUB_ADMIN only). Idempotent.
 router.delete(
   "/api/admin/adhkar/official/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;

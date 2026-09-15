@@ -7,12 +7,21 @@ import { Badge } from '@/components/UI/Badge';
 import { Avatar } from '@/pages/connect/Avatar';
 import { listUsers, updateUserRole, type AdminUser } from '@/pages/admin/adminApi';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER } from '@/pages/auth/roles';
 import { ChevronLeft, Shield, User, RefreshCw } from 'lucide-react';
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.3 },
+};
+
+type SystemRole = 'ADMIN' | 'SUB_ADMIN' | 'USER';
+
+const ROLE_BADGE: Record<SystemRole, { label: string; variant: 'primary' | 'info' | 'secondary' }> = {
+  [ROLE_ADMIN]: { label: 'مشرف', variant: 'primary' },
+  [ROLE_SUB_ADMIN]: { label: 'مشرف فرعي', variant: 'info' },
+  [ROLE_USER]: { label: 'مستخدم', variant: 'secondary' },
 };
 
 export default function AdminUsersPage() {
@@ -39,7 +48,7 @@ export default function AdminUsersPage() {
     loadUsers();
   }, [loadUsers]);
 
-  const handleRoleChange = async (user: AdminUser, role: 'ADMIN' | 'USER') => {
+  const handleRoleChange = async (user: AdminUser, role: SystemRole) => {
     setBusyId(user.id);
     setError(null);
     try {
@@ -51,6 +60,8 @@ export default function AdminUsersPage() {
       setBusyId(null);
     }
   };
+
+  const roleCount = (role: SystemRole) => users.filter((u) => u.role === role).length;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8" dir="rtl">
@@ -74,10 +85,13 @@ export default function AdminUsersPage() {
             </h2>
             <div className="flex items-center gap-2">
               <Badge variant="primary" icon={<Shield className="w-3 h-3" />}>
-                {users.filter((u) => u.role === 'ADMIN').length} مشرف
+                {roleCount(ROLE_ADMIN)} مشرف
+              </Badge>
+              <Badge variant="info" icon={<Shield className="w-3 h-3" />}>
+                {roleCount(ROLE_SUB_ADMIN)} مشرف فرعي
               </Badge>
               <Badge variant="secondary" icon={<User className="w-3 h-3" />}>
-                {users.filter((u) => u.role === 'USER').length} مستخدم
+                {roleCount(ROLE_USER)} مستخدم
               </Badge>
               <Button size="sm" variant="ghost" onClick={loadUsers} loading={loading} icon={<RefreshCw className="w-4 h-4" />}>
                 تحديث
@@ -108,9 +122,12 @@ export default function AdminUsersPage() {
           ) : (
             <ul className="divide-y divide-light-border dark:divide-dark-border">
               {users.map((user) => {
-                const isAdmin = user.role === 'ADMIN';
+                const role = (user.role in ROLE_BADGE ? user.role : ROLE_USER) as SystemRole;
+                const badge = ROLE_BADGE[role];
                 const isSelf = user.id === currentUser?.id;
                 const everBusy = busyId === user.id;
+                const isSubAdmin = role === ROLE_SUB_ADMIN;
+                const isMainAdmin = role === ROLE_ADMIN;
                 return (
                   <li
                     key={user.id}
@@ -134,15 +151,15 @@ export default function AdminUsersPage() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant={isAdmin ? 'primary' : 'secondary'} dot>
-                        {isAdmin ? 'مشرف' : 'مستخدم'}
+                      <Badge variant={badge.variant} dot>
+                        {badge.label}
                       </Badge>
 
-                      {isAdmin ? (
+                      {isMainAdmin ? (
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => handleRoleChange(user, 'USER')}
+                          onClick={() => handleRoleChange(user, ROLE_USER)}
                           loading={everBusy}
                           disabled={isSelf}
                           title={isSelf ? 'لا يمكنك إزالة صلاحية نفسك' : 'تحويل إلى مستخدم'}
@@ -150,14 +167,35 @@ export default function AdminUsersPage() {
                           تحويل إلى مستخدم
                         </Button>
                       ) : (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          onClick={() => handleRoleChange(user, 'ADMIN')}
-                          loading={everBusy}
-                        >
-                          ترقية إلى مشرف
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => handleRoleChange(user, ROLE_ADMIN)}
+                            loading={everBusy}
+                          >
+                            ترقية إلى مشرف
+                          </Button>
+                          {isSubAdmin ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => handleRoleChange(user, ROLE_USER)}
+                              loading={everBusy}
+                            >
+                              تحويل إلى مستخدم
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => handleRoleChange(user, ROLE_SUB_ADMIN)}
+                              loading={everBusy}
+                            >
+                              ترقية إلى مشرف فرعي
+                            </Button>
+                          )}
+                        </>
                       )}
                     </div>
                   </li>

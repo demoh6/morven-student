@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole, isMainAdminRole } from '@/pages/auth/roles';
 import { useThemeStore } from '@/store/useThemeStore';
 import { usePomodoroStore } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { formatClock } from '@/pages/tools/GeneralTools/Pomodoro/formatTime';
@@ -244,8 +245,9 @@ export function Header({ title }: HeaderProps) {
                           الاقتراحات
                         </button>
 
-                        {user.role === 'ADMIN' && (
+                        {isAdminRole(user.role) && (
                           <>
+                          {isMainAdminRole(user.role) && (
                           <button
                             onClick={() => {
                               setMenuOpen(false);
@@ -256,6 +258,7 @@ export function Header({ title }: HeaderProps) {
                             <ShieldIcon className="w-4 h-4 text-primary-500" />
                             إدارة المستخدمين
                           </button>
+                          )}
 
                           <button
                             onClick={() => {

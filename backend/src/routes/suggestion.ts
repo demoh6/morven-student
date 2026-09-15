@@ -7,7 +7,7 @@ import {
   SuggestionError,
 } from "../services/suggestion.service";
 import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/requireRole";
+import { requireAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
@@ -44,11 +44,11 @@ router.post(
   }
 );
 
-// GET /api/admin/suggestions — list all suggestions with user info (ADMIN only)
+// GET /api/admin/suggestions — list all suggestions with user info (ADMIN or SUB_ADMIN only)
 router.get(
   "/api/admin/suggestions",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (_req: Request, res: Response) => {
     try {
       const suggestions = await listSuggestions();
@@ -60,11 +60,11 @@ router.get(
   }
 );
 
-// DELETE /api/admin/suggestions/:id — permanently remove a suggestion (ADMIN only)
+// DELETE /api/admin/suggestions/:id — permanently remove a suggestion (ADMIN or SUB_ADMIN only)
 router.delete(
   "/api/admin/suggestions/:id",
   authenticate,
-  requireRole("ADMIN"),
+  requireAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       const { id } = req.params;

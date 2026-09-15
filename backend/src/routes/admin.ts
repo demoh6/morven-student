@@ -6,15 +6,16 @@ import {
   AdminError,
 } from "../services/admin.service";
 import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/requireRole";
+import { requireMainAdmin } from "../middleware/requireRole";
 
 const router = Router();
 
-// GET /api/admin/users — list all users (ADMIN only)
+// GET /api/admin/users — list all users (ADMIN only; SUB_ADMIN forbidden —
+// this endpoint also exposes every user's role, an admin-system concern)
 router.get(
   "/api/admin/users",
   authenticate,
-  requireRole("ADMIN"),
+  requireMainAdmin(),
   async (_req: Request, res: Response) => {
     try {
       const users = await listUsers();
@@ -30,7 +31,7 @@ router.get(
 router.patch(
   "/api/admin/users/:id/role",
   authenticate,
-  requireRole("ADMIN"),
+  requireMainAdmin(),
   async (req: Request<{ id: string }>, res: Response) => {
     try {
       if (!req.user) {

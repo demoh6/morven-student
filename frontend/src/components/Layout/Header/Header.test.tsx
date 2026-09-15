@@ -38,6 +38,16 @@ const regularUser: AuthUser = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
+const subAdminUser: AuthUser = {
+  id: 'u-subadmin',
+  email: 'subadmin@example.com',
+  username: 'subadmin_m',
+  displayName: 'مشرف فرعي',
+  role: 'SUB_ADMIN',
+  avatarUrl: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
+
 function renderHeader() {
   return render(
     <MemoryRouter initialEntries={['/']}>
@@ -111,5 +121,15 @@ describe('Header account menu suggestions entries', () => {
     expect(screen.queryByText('إدارة المستخدمين')).not.toBeInTheDocument();
     expect(screen.queryAllByText('الاقتراحات')).toHaveLength(0);
     expect(within(document.body).queryByText('مدير النظام')).not.toBeInTheDocument();
+  });
+
+  it('shows normal admin entries but not user-management for a SUB_ADMIN', () => {
+    useAuthStore.setState({ user: subAdminUser });
+    renderHeader();
+    openMenu(subAdminUser.displayName);
+
+    expect(screen.queryByText('إدارة المستخدمين')).not.toBeInTheDocument();
+    expect(screen.getAllByText('الاقتراحات')).toHaveLength(2);
+    expect(screen.getByText('مراجعة الأذكار')).toBeInTheDocument();
   });
 });

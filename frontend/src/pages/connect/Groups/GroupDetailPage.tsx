@@ -28,6 +28,7 @@ import { GroupMemberRow } from '@/pages/connect/Groups/GroupMemberRow';
 import { setActiveGroupId } from '@/pages/tools/GeneralTools/Pomodoro/connectPomodoro';
 import { usePomodoroStore } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole } from '@/pages/auth/roles';
 import { API_BASE } from '@/services/apiBase';
 import {
   Users,
@@ -256,8 +257,8 @@ export default function GroupDetailPage() {
 
   const isOwner = group.role === 'OWNER';
   const isAdmin = group.role === 'ADMIN';
-  // A system ADMIN (User.role === "ADMIN") manages every group without joining.
-  const isGlobalAdmin = user?.role === 'ADMIN';
+  // A system ADMIN/SUB_ADMIN (User.role) manages every group without joining.
+  const isGlobalAdmin = isAdminRole(user?.role);
   // OWNER and ADMIN can edit the group; only the OWNER or a system ADMIN may
   // delete it.
   const canEdit = isOwner || isAdmin;

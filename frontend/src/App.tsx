@@ -145,8 +145,9 @@ export default function App() {
           <Route path="/connect/resources/:resourceId" element={<ProtectedRoute><ResourceDetailPage /></ProtectedRoute>} />
           <Route path="/connect/suggestions" element={<ProtectedRoute><SuggestionsPage /></ProtectedRoute>} />
 
-          {/* Admin (ADMIN role only) */}
-          <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
+          {/* Admin — suggestions & adhkar: ADMIN or SUB_ADMIN; user/role
+              management (/admin/users): main ADMIN only */}
+          <Route path="/admin/users" element={<AdminRoute requireMainAdmin><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/suggestions" element={<AdminRoute><AdminSuggestionsPage /></AdminRoute>} />
           <Route path="/admin/adhkar" element={<AdminRoute><AdminDhikrSubmissionsPage /></AdminRoute>} />
         </Route>

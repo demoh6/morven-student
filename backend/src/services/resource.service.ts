@@ -3,6 +3,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import prisma from "../lib/prisma";
+import { isAdminRole } from "../lib/roles";
 import { Prisma } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -127,7 +128,7 @@ function tryDecrypt(payload: string | null): string | null {
  * over their own Resource. A regular Member is view-only.
  */
 function canEdit(role: string, ownerId: string, userId: string): boolean {
-  return role === "ADMIN" || ownerId === userId;
+  return isAdminRole(role) || ownerId === userId;
 }
 
 /**
@@ -142,7 +143,7 @@ async function canAccessPrivate(
   role: string,
 ): Promise<boolean> {
   if (!resource.isPrivate) return true;
-  if (role === "ADMIN" || resource.ownerId === requesterId) return true;
+  if (isAdminRole(role) || resource.ownerId === requesterId) return true;
   const granted = await prisma.resourceAccess.findUnique({
     where: { resourceId_userId: { resourceId: resource.id, userId: requesterId } },
     select: { id: true },
@@ -248,9 +249,10 @@ async function getResourceOrThrow(resourceId: string) {
 // ---------------------------------------------------------------------------
 
 export async function listResources(requesterId: string, role: string) {
-  // A system ADMIN sees every resource (consistent with groups). Everyone else
-  // sees public resources plus private resources they own or have unlocked.
-  const admin = role === "ADMIN";
+  // A system ADMIN/SUB_ADMIN sees every resource (consistent with groups).
+  // Everyone else sees public resources plus private resources they own or
+  // have unlocked.
+  const admin = isAdminRole(role);
   const where = admin
     ? {}
     : {
@@ -311,7 +313,7 @@ export async function getResourceDetails(resourceId: string, requesterId: string
     throw new ResourceError("هذا المورد خاص", 403, "PRIVATE_RESOURCE");
   }
 
-  const includeCode = resource.isPrivate && (role === "ADMIN" || resource.ownerId === requesterId);
+  const includeCode = resource.isPrivate && (isAdminRole(role) || resource.ownerId === requesterId);
   return sanitizeContent(resource, {
     includeCode,
     accessCode: includeCode ? tryDecrypt(resource.accessCodeCiphertext) : null,
@@ -392,7 +394,7 @@ export async function accessPrivateResource(
     throw new ResourceError("هذا المورد عام", 400);
   }
 
-  if (role === "ADMIN" || resource.ownerId === requesterId) {
+  if (isAdminRole(role) || resource.ownerId === requesterId) {
     return getResourceDetails(resourceId, requesterId, role);
   }
 
@@ -427,7 +429,7 @@ export async function accessPrivateResourceByCode(requesterId: string, role: str
     throw new ResourceError("رمز الوصول غير صحيح", 404);
   }
 
-  const canManage = role === "ADMIN" || resource.ownerId === requesterId;
+  const canManage = isAdminRole(role) || resource.ownerId === requesterId;
   if (!canManage) {
     await prisma.resourceAccess.upsert({
       where: { resourceId_userId: { resourceId: resource.id, userId: requesterId } },

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import prisma from "../lib/prisma";
+import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER } from "../lib/roles";
 
 export class AdminError extends Error {
   status: number;
@@ -10,7 +11,7 @@ export class AdminError extends Error {
 }
 
 export const updateRoleSchema = z.object({
-  role: z.enum(["ADMIN", "USER"], {
+  role: z.enum([ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER], {
     error: "الدور غير صالح",
   }),
 });
@@ -40,15 +41,17 @@ export async function listUsers() {
   return users.map(({ passwordHash, ...user }) => user);
 }
 
-export async function updateUserRole(userId: string, role: "ADMIN" | "USER") {
+export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN" | "USER") {
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) {
     throw new AdminError("المستخدم غير موجود", 404);
   }
 
-  // Demoting the last ADMIN would leave the system with zero admins.
-  if (target.role === "ADMIN" && role === "USER") {
-    const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+  // Demoting (or downgrading) the last ADMIN would leave the system with zero
+  // main admins and none of the admin-management rights. Preserved from the
+  // original implementation: a single main ADMIN is never stripped of ADMIN.
+  if (target.role === ROLE_ADMIN && role !== ROLE_ADMIN) {
+    const adminCount = await prisma.user.count({ where: { role: ROLE_ADMIN } });
     if (adminCount <= 1) {
       throw new AdminError(
         "لا يمكن إزالة صلاحية المشرف الأخير — يجب أن يبقى مشرف واحد على الأقل",
