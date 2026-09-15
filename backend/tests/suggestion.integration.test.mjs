@@ -307,4 +307,92 @@ describe("Suggestions API", () => {
     });
     assert.equal(res.status, 404);
   });
+
+  it("allows an admin to permanently delete a suggestion", async () => {
+    const admin = await register(server.baseUrl, "deladmin");
+    await prisma.user.update({ where: { id: admin.id }, data: { role: "ADMIN" } });
+    const adminToken = await login(server.baseUrl, admin);
+
+    const submitter = await register(server.baseUrl, "delsub");
+    const create = await fetch(`${server.baseUrl}/api/suggestions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${submitter.accessToken}`,
+      },
+      body: JSON.stringify({ title: "سيتم حذفه", content: "محتوى ستحذفه" }),
+    });
+    assert.equal(create.status, 201);
+    const { suggestion } = await create.json();
+
+    const del = await fetch(
+      `${server.baseUrl}/api/admin/suggestions/${suggestion.id}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(del.status, 200);
+    assert.equal((await del.json()).deleted, true);
+
+    const stored = await prisma.suggestion.findUnique({
+      where: { id: suggestion.id },
+    });
+    assert.equal(stored, null, "suggestion must be gone from the database");
+
+    const list = await fetch(`${server.baseUrl}/api/admin/suggestions`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const { suggestions } = await list.json();
+    assert.ok(
+      !suggestions.some((s) => s.id === suggestion.id),
+      "deleted suggestion must not appear in the admin list"
+    );
+  });
+
+  it("denies a regular user from deleting suggestions (403)", async () => {
+    const user = await register(server.baseUrl, "deldenied");
+    const admin = await register(server.baseUrl, "deladmin2");
+    await prisma.user.update({ where: { id: admin.id }, data: { role: "ADMIN" } });
+    const adminToken = await login(server.baseUrl, admin);
+
+    const create = await fetch(`${server.baseUrl}/api/suggestions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${admin.accessToken}`,
+      },
+      body: JSON.stringify({ title: "هدف الحذف", content: "يجب ألا يُحذف" }),
+    });
+    assert.equal(create.status, 201);
+    const { suggestion } = await create.json();
+
+    const del = await fetch(
+      `${server.baseUrl}/api/admin/suggestions/${suggestion.id}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${user.accessToken}` } }
+    );
+    assert.equal(del.status, 403);
+
+    const stored = await prisma.suggestion.findUnique({
+      where: { id: suggestion.id },
+    });
+    assert.ok(stored, "suggestion must still exist after a denied delete");
+  });
+
+  it("denies unauthenticated suggestion deletion (401)", async () => {
+    const res = await fetch(
+      `${server.baseUrl}/api/admin/suggestions/does-not-matter`,
+      { method: "DELETE" }
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 404 when deleting a non-existent suggestion", async () => {
+    const admin = await register(server.baseUrl, "delmiss");
+    await prisma.user.update({ where: { id: admin.id }, data: { role: "ADMIN" } });
+    const adminToken = await login(server.baseUrl, admin);
+
+    const res = await fetch(
+      `${server.baseUrl}/api/admin/suggestions/does-not-exist`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(res.status, 404);
+  });
 });

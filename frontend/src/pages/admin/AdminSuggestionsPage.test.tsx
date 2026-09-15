@@ -1,15 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import AdminSuggestionsPage from '@/pages/admin/AdminSuggestionsPage';
+import { useAppStore } from '@/store/useAppStore';
 import type { AdminSuggestion } from '@/services/suggestionApi';
 
 vi.mock('@/services/suggestionApi', () => ({
   listSuggestions: vi.fn(),
+  deleteSuggestion: vi.fn(),
 }));
 
-import { listSuggestions } from '@/services/suggestionApi';
+import { listSuggestions, deleteSuggestion } from '@/services/suggestionApi';
 const mockedListSuggestions = vi.mocked(listSuggestions);
+const mockedDeleteSuggestion = vi.mocked(deleteSuggestion);
 
 function renderPage() {
   return render(
@@ -24,6 +28,7 @@ function renderPage() {
 describe('AdminSuggestionsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAppStore.setState({ notifications: [] });
   });
 
   const suggestion: AdminSuggestion = {
@@ -104,5 +109,91 @@ describe('AdminSuggestionsPage', () => {
     expect(
       screen.queryByText('اختار الإرسال بشكل متخفٍ'),
     ).not.toBeInTheDocument();
+  });
+
+  it('asks for confirmation before deleting a suggestion', async () => {
+    mockedListSuggestions.mockResolvedValue([suggestion]);
+    mockedDeleteSuggestion.mockResolvedValue();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+
+    expect(
+      screen.getByText('هل أنت متأكد من حذف هذا الاقتراح نهائياً؟ لا يمكن التراجع عن هذا الإجراء.'),
+    ).toBeInTheDocument();
+    expect(mockedDeleteSuggestion).not.toHaveBeenCalled();
+  });
+
+  it('cancels the delete confirmation without deleting', async () => {
+    mockedListSuggestions.mockResolvedValue([suggestion]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'إلغاء' }),
+    );
+
+    expect(mockedDeleteSuggestion).not.toHaveBeenCalled();
+    expect(screen.getByText('أحمد محمد')).toBeInTheDocument();
+  });
+
+  it('deletes the suggestion after confirmation and removes it from the list', async () => {
+    mockedListSuggestions.mockResolvedValue([suggestion]);
+    mockedDeleteSuggestion.mockResolvedValue();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'حذف' }),
+    );
+
+    await waitFor(() => {
+      expect(mockedDeleteSuggestion).toHaveBeenCalledWith('s1');
+    });
+    expect(
+      useAppStore.getState().notifications.map((n) => n.message),
+    ).toContain('تم حذف الاقتراح بنجاح');
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد اقتراحات بعد')).toBeInTheDocument();
+    });
+  });
+
+  it('shows an error toast when the deletion fails and keeps the suggestion', async () => {
+    mockedListSuggestions.mockResolvedValue([suggestion]);
+    mockedDeleteSuggestion.mockRejectedValue(new Error('حدث خطأ في الخادم'));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'حذف' }),
+    );
+
+    await waitFor(() => {
+      expect(mockedDeleteSuggestion).toHaveBeenCalledWith('s1');
+    });
+    expect(
+      useAppStore.getState().notifications.map((n) => n.message),
+    ).toContain('حدث خطأ في الخادم');
+    expect(screen.getByText('أحمد محمد')).toBeInTheDocument();
   });
 });

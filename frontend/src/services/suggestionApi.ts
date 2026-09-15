@@ -45,3 +45,11 @@ export async function listSuggestions(): Promise<AdminSuggestion[]> {
   );
   return data.suggestions;
 }
+
+/** Permanently removes a suggestion (ADMIN only). */
+export async function deleteSuggestion(id: string): Promise<void> {
+  await authRequest<{ deleted: boolean }>(
+    `/api/admin/suggestions/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}

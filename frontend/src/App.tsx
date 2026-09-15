@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/Layout/MainLayout';
 import { NotificationHost } from '@/components/Layout/Header/Notification/NotificationHost';
 import { PrayerPauseHost } from '@/components/prayer-pause';
+import { AdhkarReminderHost } from '@/components/adhkar-reminder';
 import { ToolErrorBoundary } from '@/pages/tools/ToolErrorBoundary';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminRoute } from '@/pages/admin/AdminRoute';
@@ -118,6 +119,7 @@ export default function App() {
     <BrowserRouter>
       <NotificationHost />
       <PrayerPauseHost />
+      <AdhkarReminderHost />
       <PreviewBanner />
       <Routes>
         <Route path="/login" element={<LoginPage />} />

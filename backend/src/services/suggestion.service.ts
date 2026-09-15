@@ -45,6 +45,19 @@ export async function createSuggestion(userId: string, input: CreateSuggestionIn
   return suggestion;
 }
 
+/**
+ * Permanently removes a suggestion. ADMIN-only.
+ */
+export async function deleteSuggestion(suggestionId: string) {
+  const existing = await prisma.suggestion.findUnique({
+    where: { id: suggestionId },
+  });
+  if (!existing) {
+    throw new SuggestionError("الاقتراح غير موجود", 404);
+  }
+  return prisma.suggestion.delete({ where: { id: suggestionId } });
+}
+
 export async function listSuggestions() {
   const suggestions = await prisma.suggestion.findMany({
     orderBy: { createdAt: "desc" },

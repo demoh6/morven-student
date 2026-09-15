@@ -4,9 +4,15 @@ import { motion } from 'framer-motion';
 import { Card } from '@/components/UI/Card';
 import { Button } from '@/components/UI/Button';
 import { Badge } from '@/components/UI/Badge';
+import { Modal } from '@/components/UI/Modal';
 import { Avatar } from '@/pages/connect/Avatar';
-import { listSuggestions, type AdminSuggestion } from '@/services/suggestionApi';
-import { ChevronLeft, Lightbulb, RefreshCw, MessageSquareText } from 'lucide-react';
+import { useAppStore } from '@/store/useAppStore';
+import {
+  listSuggestions,
+  deleteSuggestion,
+  type AdminSuggestion,
+} from '@/services/suggestionApi';
+import { ChevronLeft, Lightbulb, RefreshCw, MessageSquareText, Trash2 } from 'lucide-react';
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -29,9 +35,12 @@ const formatDate = (value: string) => {
 };
 
 export default function AdminSuggestionsPage() {
+  const addNotification = useAppStore((s) => s.addNotification);
   const [suggestions, setSuggestions] = useState<AdminSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminSuggestion | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadSuggestions = useCallback(async () => {
     setLoading(true);
@@ -49,6 +58,25 @@ export default function AdminSuggestionsPage() {
   useEffect(() => {
     loadSuggestions();
   }, [loadSuggestions]);
+
+  const handleDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteSuggestion(deleteTarget.id);
+      addNotification('تم حذف الاقتراح بنجاح', 'success', 4000);
+      setSuggestions((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      addNotification(
+        err instanceof Error ? err.message : 'فشل حذف الاقتراح',
+        'error',
+        4000,
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8" dir="rtl">
@@ -130,12 +158,41 @@ export default function AdminSuggestionsPage() {
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     تاريخ الإرسال: {formatDate(suggestion.createdAt)}
                   </p>
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      icon={<Trash2 className="w-4 h-4" />}
+                      onClick={() => setDeleteTarget(suggestion)}
+                    >
+                      حذف
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </Card>
       </motion.div>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="تأكيد الحذف"
+        size="sm"
+      >
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          هل أنت متأكد من حذف هذا الاقتراح نهائياً؟ لا يمكن التراجع عن هذا الإجراء.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="ghost" onClick={() => setDeleteTarget(null)} className="flex-1">
+            إلغاء
+          </Button>
+          <Button variant="danger" loading={deleting} onClick={handleDelete} className="flex-1">
+            حذف
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

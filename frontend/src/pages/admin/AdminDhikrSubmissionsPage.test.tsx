@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import AdminDhikrSubmissionsPage from '@/pages/admin/AdminDhikrSubmissionsPage';
@@ -11,6 +11,7 @@ vi.mock('@/pages/tools/GeneralTools/Adhkar/adhkarApi', () => ({
   listDhikrSubmissions: vi.fn(),
   approveDhikrSubmission: vi.fn(),
   rejectDhikrSubmission: vi.fn(),
+  deleteDhikrSubmission: vi.fn(),
   fetchApprovedAdhkar: vi.fn(),
   submitDhikrSubmission: vi.fn(),
 }));
@@ -19,10 +20,12 @@ import {
   listDhikrSubmissions,
   approveDhikrSubmission,
   rejectDhikrSubmission,
+  deleteDhikrSubmission,
 } from '@/pages/tools/GeneralTools/Adhkar/adhkarApi';
 const mockedList = vi.mocked(listDhikrSubmissions);
 const mockedApprove = vi.mocked(approveDhikrSubmission);
 const mockedReject = vi.mocked(rejectDhikrSubmission);
+const mockedDelete = vi.mocked(deleteDhikrSubmission);
 
 function baseSubmission(overrides: Partial<AdminDhikrSubmission> = {}): AdminDhikrSubmission {
   return {
@@ -180,5 +183,91 @@ describe('AdminDhikrSubmissionsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('حدث خطأ في الخادم')).toBeInTheDocument();
     });
+  });
+
+  it('shows a delete action for rejected submissions', async () => {
+    mockedList.mockResolvedValue([baseSubmission({ status: 'REJECTED' })]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('تم رفض هذا الذكر وإشعار المستخدم بذلك.'),
+    ).toBeInTheDocument();
+  });
+
+  it('asks for confirmation before permanently deleting a rejected dhikr', async () => {
+    mockedList.mockResolvedValue([baseSubmission({ status: 'REJECTED' })]);
+    mockedDelete.mockResolvedValue();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+
+    expect(
+      screen.getByText('هل أنت متأكد من حذف هذا الذكر نهائياً؟ لا يمكن التراجع عن هذا الإجراء.'),
+    ).toBeInTheDocument();
+    expect(mockedDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes a rejected dhikr after confirmation and removes it from the list', async () => {
+    mockedList.mockResolvedValue([baseSubmission({ status: 'REJECTED' })]);
+    mockedDelete.mockResolvedValue();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'حذف' }),
+    );
+
+    await waitFor(() => {
+      expect(mockedDelete).toHaveBeenCalledWith('s1');
+    });
+    expect(toasts()).toContain('تم حذف الذكر نهائياً');
+    await waitFor(() => {
+      expect(screen.getByText('لا توجد أذكار مقدمة بعد')).toBeInTheDocument();
+    });
+  });
+
+  it('shows an error toast when the deletion fails and keeps the submission', async () => {
+    mockedList.mockResolvedValue([baseSubmission({ status: 'REJECTED' })]);
+    mockedDelete.mockRejectedValue(new Error('حدث خطأ في الخادم'));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'حذف' })).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'حذف' }));
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'حذف' }),
+    );
+
+    await waitFor(() => {
+      expect(mockedDelete).toHaveBeenCalledWith('s1');
+    });
+    expect(toasts()).toContain('حدث خطأ في الخادم');
+    expect(screen.getByText('ذكر مقترح')).toBeInTheDocument();
+  });
+
+  it('does not show a delete action for pending submissions', async () => {
+    mockedList.mockResolvedValue([baseSubmission()]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'قبول' })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: 'حذف' })).not.toBeInTheDocument();
   });
 });

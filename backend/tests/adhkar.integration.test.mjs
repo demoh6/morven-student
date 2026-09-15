@@ -588,6 +588,65 @@ describe("Adhkar submissions API", () => {
     assert.equal(stored, null, "row must be gone from the database");
   });
 
+  it("deletes a rejected submission permanently after review", async () => {
+    const { data: user } = await register(server.baseUrl, "delrej");
+    const admin = await adminUser(server.baseUrl, "delrejadmin");
+
+    const { data } = await submit(server.baseUrl, user.accessToken, validPayload());
+    const id = data.submission.id;
+
+    const rejection = await fetch(
+      `${server.baseUrl}/api/admin/adhkar/submissions/${id}/reject`,
+      { method: "POST", headers: { Authorization: `Bearer ${admin.token}` } }
+    );
+    assert.equal(rejection.status, 200);
+    assert.equal((await rejection.json()).submission.status, "REJECTED");
+
+    const del = await fetch(
+      `${server.baseUrl}/api/admin/adhkar/submissions/${id}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${admin.token}` } }
+    );
+    assert.equal(del.status, 200);
+
+    const stored = await prisma.dhikrSubmission.findUnique({ where: { id } });
+    assert.equal(stored, null, "rejected submission must be gone from the database");
+
+    // It must not come back in the admin list either.
+    const adminList = await fetch(
+      `${server.baseUrl}/api/admin/adhkar/submissions`,
+      { headers: { Authorization: `Bearer ${admin.token}` } }
+    );
+    const { submissions } = await adminList.json();
+    assert.ok(
+      !submissions.some((s) => s.id === id),
+      "deleted rejected submission must not appear in the admin list"
+    );
+  });
+
+  it("blocks a regular user from deleting a rejected submission (403)", async () => {
+    const admin = await adminUser(server.baseUrl, "rdadmin");
+    const { data: user } = await register(server.baseUrl, "rduser");
+    const { data: proposer } = await register(server.baseUrl, "rdprop");
+
+    const { data } = await submit(server.baseUrl, proposer.accessToken, validPayload());
+    const id = data.submission.id;
+
+    await fetch(`${server.baseUrl}/api/admin/adhkar/submissions/${id}/reject`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${admin.token}` },
+    });
+
+    const del = await fetch(
+      `${server.baseUrl}/api/admin/adhkar/submissions/${id}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${user.accessToken}` } }
+    );
+    assert.equal(del.status, 403);
+
+    const stored = await prisma.dhikrSubmission.findUnique({ where: { id } });
+    assert.ok(stored, "rejected submission must survive a denied delete");
+    assert.equal(stored.status, "REJECTED");
+  });
+
   it("returns 404 for unknown submission ids and 400 for invalid edit content", async () => {
     const admin = await adminUser(server.baseUrl, "emadmin");
     const patch = (path, body = { title: "x", text: "y", source: "" }) =>

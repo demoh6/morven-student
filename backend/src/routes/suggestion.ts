@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import {
   createSuggestion,
   createSuggestionSchema,
+  deleteSuggestion,
   listSuggestions,
   SuggestionError,
 } from "../services/suggestion.service";
@@ -54,6 +55,31 @@ router.get(
       res.json({ suggestions });
     } catch (err) {
       console.error("List suggestions error:", err);
+      res.status(500).json({ error: "حدث خطأ في الخادم" });
+    }
+  }
+);
+
+// DELETE /api/admin/suggestions/:id — permanently remove a suggestion (ADMIN only)
+router.delete(
+  "/api/admin/suggestions/:id",
+  authenticate,
+  requireRole("ADMIN"),
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!id || id.trim().length === 0) {
+        res.status(400).json({ error: "معرف الاقتراح مطلوب" });
+        return;
+      }
+      await deleteSuggestion(id);
+      res.json({ deleted: true });
+    } catch (err) {
+      if (err instanceof SuggestionError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      console.error("Delete suggestion error:", err);
       res.status(500).json({ error: "حدث خطأ في الخادم" });
     }
   }

@@ -3,12 +3,14 @@ import { motion } from 'framer-motion';
 import { Card } from '@/components/UI/Card';
 import { Button } from '@/components/UI/Button';
 import { Badge } from '@/components/UI/Badge';
+import { Modal } from '@/components/UI/Modal';
 import { Avatar } from '@/pages/connect/Avatar';
 import { useAppStore } from '@/store/useAppStore';
 import {
   listDhikrSubmissions,
   approveDhikrSubmission,
   rejectDhikrSubmission,
+  deleteDhikrSubmission,
   type AdminDhikrSubmission,
 } from '@/pages/tools/GeneralTools/Adhkar/adhkarApi';
 import { ADHKARS, CATEGORY_META } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
@@ -20,6 +22,7 @@ import {
   X,
   TriangleAlert,
   Clock3,
+  Trash2,
 } from 'lucide-react';
 
 const fadeUp = {
@@ -77,6 +80,7 @@ export default function AdminDhikrSubmissionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminDhikrSubmission | null>(null);
 
   const duplicateMap = useDuplicateCheck(submissions);
 
@@ -137,6 +141,25 @@ export default function AdminDhikrSubmissionsPage() {
     } catch (err) {
       addNotification(
         err instanceof Error ? err.message : 'فشل رفض الذكر',
+        'error',
+        4000,
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget || busyId) return;
+    setBusyId(deleteTarget.id);
+    try {
+      await deleteDhikrSubmission(deleteTarget.id);
+      addNotification('تم حذف الذكر نهائياً', 'success', 4000);
+      setSubmissions((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      addNotification(
+        err instanceof Error ? err.message : 'فشل حذف الذكر',
         'error',
         4000,
       );
@@ -267,11 +290,23 @@ export default function AdminDhikrSubmissionsPage() {
                         </Button>
                       </div>
                     ) : (
-                      <p className="text-xs font-medium text-gray-400 dark:text-gray-500">
-                        {submission.status === 'APPROVED'
-                          ? 'تمت الموافقة على هذا الذكر وهو ظاهر في القسم.'
-                          : 'تم رفض هذا الذكر وإشعار المستخدم بذلك.'}
-                      </p>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <p className="text-xs font-medium text-gray-400 dark:text-gray-500">
+                          {submission.status === 'APPROVED'
+                            ? 'تمت الموافقة على هذا الذكر وهو ظاهر في القسم.'
+                            : 'تم رفض هذا الذكر وإشعار المستخدم بذلك.'}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          icon={<Trash2 className="w-4 h-4" />}
+                          loading={busyId === submission.id}
+                          disabled={!!busyId}
+                          onClick={() => setDeleteTarget(submission)}
+                        >
+                          حذف
+                        </Button>
+                      </div>
                     )}
                   </li>
                 );
@@ -280,6 +315,30 @@ export default function AdminDhikrSubmissionsPage() {
           )}
         </Card>
       </motion.div>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="تأكيد الحذف"
+        size="sm"
+      >
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          هل أنت متأكد من حذف هذا الذكر نهائياً؟ لا يمكن التراجع عن هذا الإجراء.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="ghost" onClick={() => setDeleteTarget(null)} className="flex-1">
+            إلغاء
+          </Button>
+          <Button
+            variant="danger"
+            loading={busyId === deleteTarget?.id}
+            onClick={handleDelete}
+            className="flex-1"
+          >
+            حذف
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
