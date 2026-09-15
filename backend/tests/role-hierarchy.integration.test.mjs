@@ -1,5 +1,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { io as ioClient } from "socket.io-client";
 import { startBackend } from "./helpers/server.mjs";
 import { config as loadDotEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
@@ -16,6 +17,25 @@ function uniqueSuffix(tag) {
   const ts = Date.now().toString(36);
   const rnd = Math.random().toString(36).slice(2, 6);
   return `${tag}${ts}${rnd}`;
+}
+
+function waitFor(predicate, timeoutMs = 5000, intervalMs = 25) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const poll = async () => {
+      if (await predicate()) return resolve();
+      if (Date.now() - start > timeoutMs) return reject(new Error("waitFor timed out"));
+      setTimeout(poll, intervalMs);
+    };
+    poll();
+  });
+}
+
+function onceConnected(socket) {
+  return new Promise((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("connect_error", reject);
+  });
 }
 
 async function register(baseUrl, suffix) {
@@ -391,6 +411,69 @@ describe("Role hierarchy: ADMIN / SUB_ADMIN / USER", () => {
       !otherList.data.notifications.some((n) => n.id === congrats[0].id),
       "promotion notification must not be visible to other users"
     );
+  });
+
+  it("promotion pushes a real-time notification:new socket event ONLY to the promoted user", async () => {
+    const promoted = await register(server.baseUrl, uniqueSuffix("soce"));
+    const other = await register(server.baseUrl, uniqueSuffix("socx"));
+
+    const lp = await login(server.baseUrl, promoted.user.email);
+    const lo = await login(server.baseUrl, other.user.email);
+
+    const promSocket = ioClient(`${server.baseUrl}/connect`, {
+      auth: { token: lp.accessToken },
+      transports: ["websocket", "polling"],
+      forceNew: true,
+      reconnection: false,
+    });
+    const otherSocket = ioClient(`${server.baseUrl}/connect`, {
+      auth: { token: lo.accessToken },
+      transports: ["websocket", "polling"],
+      forceNew: true,
+      reconnection: false,
+    });
+
+    const events = [];
+    promSocket.on("notification:new", (d) => events.push({ target: "promoted", data: d }));
+    otherSocket.on("notification:new", (d) => events.push({ target: "other", data: d }));
+
+    try {
+      await Promise.all([onceConnected(promSocket), onceConnected(otherSocket)]);
+
+      const assign = await api(
+        server.baseUrl,
+        adminToken,
+        ROLE_ENDPOINT(promoted.user.id),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "SUB_ADMIN" }),
+        },
+      );
+      assert.equal(assign.res.status, 200);
+
+      await waitFor(() => events.some((e) => e.target === "promoted"));
+
+      const pushed = events.find((e) => e.target === "promoted").data.notification;
+      assert.ok(pushed.id, "event must carry the persisted notification id");
+      assert.ok(
+        String(pushed.body).includes("كمشرف في مورفن"),
+        `push payload should be the promotion notification, got: ${JSON.stringify(pushed)}`
+      );
+      assert.equal(pushed.read, false);
+      assert.ok(
+        !JSON.stringify(pushed).includes("SUB_ADMIN"),
+        "pushed payload must never leak the internal SUB_ADMIN tier"
+      );
+
+      assert.ok(
+        !events.some((e) => e.target === "other"),
+        `other user must NOT receive a notification:new event (got ${JSON.stringify(events)})`
+      );
+    } finally {
+      promSocket.disconnect();
+      otherSocket.disconnect();
+    }
   });
 
   it("demoting or re-assigning SUB_ADMIN does not create additional notifications", async () => {

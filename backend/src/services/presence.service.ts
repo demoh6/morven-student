@@ -27,6 +27,10 @@ const focusingStore = new Map<string, { focusing: boolean; updatedAt: number }>(
 // socketId -> SET<groupId> so we know which group rooms a given socket joined.
 const socketGroups = new Map<string, Set<string>>();
 
+// Reference to the /connect namespace (set at setup time) so other services can
+// push targeted events to a specific user's personal room (e.g. notifications).
+let connectNsRef: Namespace | null = null;
+
 const HEARTBEAT_INTERVAL = 15_000;
 const STALE_TIMEOUT = 30_000;
 
@@ -128,6 +132,7 @@ export function setupSocketIO(httpServer: HTTPServer) {
   });
 
   const connectNs = io.of("/connect");
+  connectNsRef = connectNs;
 
   // Authentication middleware
   connectNs.use((socket: Socket, next) => {
@@ -183,6 +188,10 @@ export function setupSocketIO(httpServer: HTTPServer) {
         lastHeartbeat: Date.now(),
       });
     }
+
+    // Join the user's personal room so server-side services can push targeted
+    // events (e.g. a new targeted notification) straight to this user's sockets.
+    socket.join(`user:${userId}`);
 
     // Join a group — updates this group's presence list to reflect ALL online
     // members (membership-based, cross-group). Only actual members may join a
@@ -288,6 +297,7 @@ export function setupSocketIO(httpServer: HTTPServer) {
   io.on("close", () => {
     clearInterval(cleanupInterval);
     leaderboardEvents.removeAllListeners();
+    connectNsRef = null;
   });
 
   // Broadcast leaderboard updates to group rooms.
@@ -316,4 +326,12 @@ leaderboardEvents.setMaxListeners(50);
 // Call this after a pomodoro session is submitted to broadcast to group members
 export function broadcastLeaderboard(groupId: string, leaderboard: unknown[]) {
   leaderboardEvents.emit("update", { groupId, leaderboard });
+}
+
+// Push a targeted real-time event to all of a specific user's connected sockets
+// (joined to their personal "user:<id>" room at connection). No-op when the
+// socket layer is not set up or the user is offline — callers must treat this
+// as best-effort delivery and keep their persisted state authoritative.
+export function emitToUser(userId: string, event: string, payload: unknown) {
+  connectNsRef?.to(`user:${userId}`).emit(event, payload);
 }

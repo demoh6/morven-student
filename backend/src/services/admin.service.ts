@@ -1,6 +1,7 @@
 import { z } from "zod";
 import prisma from "../lib/prisma";
 import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER } from "../lib/roles";
+import { emitToUser } from "./presence.service";
 
 export class AdminError extends Error {
   status: number;
@@ -74,15 +75,18 @@ export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN"
   const isNewSubAdminAssignment =
     role === ROLE_SUB_ADMIN && target.role !== ROLE_SUB_ADMIN;
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     const user = await tx.user.update({
       where: { id: userId },
       data: { role },
       include: usersInclude,
     });
 
+    // Notify ONLY on a fresh SUB_ADMIN assignment (no-op) and hand the created
+    // record back out of the transaction so the caller can push it AFTER
+    // commit — never broadcast a notification unless the assignment persisted.
     if (isNewSubAdminAssignment) {
-      await tx.appNotification.create({
+      const notification = await tx.appNotification.create({
         data: {
           title: SUB_ADMIN_PROMOTION_TITLE,
           body: SUB_ADMIN_PROMOTION_BODY,
@@ -90,12 +94,30 @@ export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN"
           createdBy: actorId,
           targetUserId: userId,
         },
+        select: { id: true, title: true, body: true, type: true, createdAt: true },
       });
+      return { user, notification };
     }
 
-    return user;
+    return { user, notification: null };
   });
 
+  const { user: updated, notification: promotionNotification } = outcome;
+
   const { passwordHash, ...safe } = updated;
+
+  if (promotionNotification) {
+    emitToUser(userId, "notification:new", {
+      notification: {
+        id: promotionNotification.id,
+        title: promotionNotification.title,
+        body: promotionNotification.body,
+        type: promotionNotification.type,
+        createdAt: promotionNotification.createdAt.toISOString(),
+        read: false,
+      },
+    });
+  }
+
   return safe;
 }

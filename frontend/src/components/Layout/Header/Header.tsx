@@ -10,6 +10,7 @@ import { HeaderQuranPlayer } from '@/pages/tools/GeneralTools/Quran/HeaderQuranP
 import { OfflineIndicator } from '@/components/Layout/OfflineIndicator';
 import { NotificationsPanel } from '@/components/Layout/Header/Notification/NotificationsPanel';
 import { useNotificationStore } from '@/components/Layout/Header/Notification/useNotificationStore';
+import { useNotificationDelivery } from '@/components/Layout/Header/Notification/useNotificationDelivery';
 import { Avatar } from '@/pages/connect/Avatar';
 import {
   LogOut,
@@ -29,6 +30,9 @@ interface HeaderProps {
 }
 
 export function Header({ title }: HeaderProps) {
+  // Keep the bell badge + notification list fresh without requiring the user
+  // to open the panel (hydrate on login + realtime push + polling fallback).
+  useNotificationDelivery();
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const navigate = useNavigate();
   const pomodoroRunning = usePomodoroStore((s) => s.isRunning);

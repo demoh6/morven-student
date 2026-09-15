@@ -21,6 +21,15 @@ export interface LeaderboardEntry {
   totalSeconds: number;
 }
 
+export interface ServerNotificationPayload {
+  id: string;
+  title: string;
+  body: string;
+  type: 'info' | 'announcement' | 'update';
+  createdAt: string;
+  read: boolean;
+}
+
 let socket: Socket | null = null;
 let currentGroupId: string | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -29,12 +38,14 @@ type PresenceCallback = (users: PresenceUser[]) => void;
 type UserEventCallback = (data: { groupId: string; user: { userId: string; username: string; displayName: string } }) => void;
 type LeaderboardCallback = (data: { groupId: string; leaderboard: LeaderboardEntry[] }) => void;
 type FocusingCallback = (data: { groupId: string; userId: string; focusing: boolean }) => void;
+type NotificationCallback = (data: { notification: ServerNotificationPayload }) => void;
 
 let onPresenceUpdate: PresenceCallback | null = null;
 let onUserJoined: UserEventCallback | null = null;
 let onUserLeft: UserEventCallback | null = null;
 let onLeaderboardUpdate: LeaderboardCallback | null = null;
 let onFocusingUpdate: FocusingCallback | null = null;
+let onNotificationEvent: NotificationCallback | null = null;
 
 // DEV-ONLY: Mock presence simulation for preview mode
 let previewPresenceInterval: ReturnType<typeof setInterval> | null = null;
@@ -127,6 +138,10 @@ export function connectSocket(): Socket {
     if (data.groupId === currentGroupId) {
       onFocusingUpdate?.(data);
     }
+  });
+
+  socket.on('notification:new', (data: { notification: ServerNotificationPayload }) => {
+    onNotificationEvent?.(data);
   });
 
   socket.on('disconnect', () => {
@@ -237,6 +252,10 @@ export function onLeaderboard(callback: LeaderboardCallback) {
 
 export function onFocusing(callback: FocusingCallback) {
   onFocusingUpdate = callback;
+}
+
+export function onNotification(callback: NotificationCallback | null) {
+  onNotificationEvent = callback;
 }
 
 function startHeartbeat() {
