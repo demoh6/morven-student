@@ -41,7 +41,14 @@ export async function listUsers() {
   return users.map(({ passwordHash, ...user }) => user);
 }
 
-export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN" | "USER") {
+// Targeted notification sent whenever a user is FIRST granted the SUB_ADMIN
+// role. It is deliberately worded as a plain "Admin" appointment — the
+// SUB_ADMIN tier is an internal-admin concern and is never shown to the user.
+const SUB_ADMIN_PROMOTION_TITLE = "تهانينا! 🎉";
+const SUB_ADMIN_PROMOTION_BODY =
+  "تم تعيينك كمشرف في مورفن.\nنتمنى لك التوفيق في مسؤولياتك الجديدة.";
+
+export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN" | "USER", actorId: string) {
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) {
     throw new AdminError("المستخدم غير موجود", 404);
@@ -60,10 +67,33 @@ export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN"
     }
   }
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { role },
-    include: usersInclude,
+  // Notify ONLY on a fresh SUB_ADMIN assignment (not on demotion, promotion to
+  // ADMIN, or re-assignment to an already-SUB_ADMIN account). Runs in the same
+  // transaction as the role update so the notification never fires unless the
+  // assignment itself succeeds (mirrors the targeted dhikr-rejection pattern).
+  const isNewSubAdminAssignment =
+    role === ROLE_SUB_ADMIN && target.role !== ROLE_SUB_ADMIN;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.update({
+      where: { id: userId },
+      data: { role },
+      include: usersInclude,
+    });
+
+    if (isNewSubAdminAssignment) {
+      await tx.appNotification.create({
+        data: {
+          title: SUB_ADMIN_PROMOTION_TITLE,
+          body: SUB_ADMIN_PROMOTION_BODY,
+          type: "info",
+          createdBy: actorId,
+          targetUserId: userId,
+        },
+      });
+    }
+
+    return user;
   });
 
   const { passwordHash, ...safe } = updated;

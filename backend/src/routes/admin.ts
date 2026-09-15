@@ -52,7 +52,7 @@ router.patch(
         return;
       }
 
-      const user = await updateUserRole(id, parsed.data.role);
+      const user = await updateUserRole(id, parsed.data.role, req.user.sub);
       res.json({ user });
     } catch (err) {
       if (err instanceof AdminError) {

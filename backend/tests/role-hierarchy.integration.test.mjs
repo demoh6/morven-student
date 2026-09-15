@@ -351,4 +351,120 @@ describe("Role hierarchy: ADMIN / SUB_ADMIN / USER", () => {
     );
     assert.equal(again.res.status, 200);
   });
+
+  it("assigning SUB_ADMIN creates a congratulatory notification delivered only to the promoted user", async () => {
+    const promoted = await register(server.baseUrl, uniqueSuffix("promo"));
+    const other = await register(server.baseUrl, uniqueSuffix("obsv"));
+
+    // ADMIN assigns SUB_ADMIN.
+    const assign = await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(promoted.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "SUB_ADMIN" }),
+      },
+    );
+    assert.equal(assign.res.status, 200);
+
+    // Promoted user logs in with fresh token reflecting the new role.
+    const freshLogin = await login(server.baseUrl, promoted.user.email);
+    assert.equal(freshLogin.user.role, "SUB_ADMIN");
+
+    const promotedList = await api(server.baseUrl, freshLogin.accessToken, "/api/notifications");
+    assert.equal(promotedList.res.status, 200);
+    const congrats = promotedList.data.notifications.filter(
+      (n) => n.body.includes("كمشرف في مورفن") && n.targetUserId === promoted.user.id
+    );
+    assert.equal(congrats.length, 1, "exactly one promotion notification must exist for the promoted user");
+    assert.ok(
+      !JSON.stringify(congrats[0]).includes("SUB_ADMIN"),
+      "notification must never leak the internal SUB_ADMIN tier"
+    );
+
+    // A completely different user must never see this targeted notification.
+    const otherLogin = await login(server.baseUrl, other.user.email);
+    const otherList = await api(server.baseUrl, otherLogin.accessToken, "/api/notifications");
+    assert.ok(
+      !otherList.data.notifications.some((n) => n.id === congrats[0].id),
+      "promotion notification must not be visible to other users"
+    );
+  });
+
+  it("demoting or re-assigning SUB_ADMIN does not create additional notifications", async () => {
+    const target = await register(server.baseUrl, uniqueSuffix("once"));
+    const other = await register(server.baseUrl, uniqueSuffix("spxx"));
+
+    // First assignment → exactly 1 notification.
+    await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(target.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "SUB_ADMIN" }),
+      },
+    );
+    let count = await prisma.appNotification.count({ where: { targetUserId: target.user.id } });
+    assert.equal(count, 1);
+
+    // Promote to ADMIN → no new notification (not a SUB_ADMIN assignment).
+    await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(target.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "ADMIN" }),
+      },
+    );
+    count = await prisma.appNotification.count({ where: { targetUserId: target.user.id } });
+    assert.equal(count, 1);
+
+    // Demote to USER → no new notification (removal, not assignment).
+    await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(target.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "USER" }),
+      },
+    );
+    count = await prisma.appNotification.count({ where: { targetUserId: target.user.id } });
+    assert.equal(count, 1);
+
+    // Assign SUB_ADMIN again (USER → SUB_ADMIN is a fresh assignment → +1).
+    await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(target.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "SUB_ADMIN" }),
+      },
+    );
+    count = await prisma.appNotification.count({ where: { targetUserId: target.user.id } });
+    assert.equal(count, 2, "a genuine re-assignment should produce exactly one more notification");
+
+    // Assign SUB_ADMIN while already SUB_ADMIN (no-op) → still 2.
+    await api(
+      server.baseUrl,
+      adminToken,
+      ROLE_ENDPOINT(target.user.id),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "SUB_ADMIN" }),
+      },
+    );
+    count = await prisma.appNotification.count({ where: { targetUserId: target.user.id } });
+    assert.equal(count, 2, "no-op re-assignment must not duplicate the notification");
+  });
 });
