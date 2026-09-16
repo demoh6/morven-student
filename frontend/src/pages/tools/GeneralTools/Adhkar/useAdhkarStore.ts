@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { DhikrCategory } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
 import { getAdhkarByCategory } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
 import { scopedStorage } from '@/storage/scopedStorage';
+import { syncAdhkarProgress } from '@/services/syncService';
 
 export type AdhkarCounts = Record<string, number>;
 
@@ -33,34 +34,43 @@ const initialState = {
 
 export const useAdhkarStore = create<AdhkarStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...initialState,
 
       setCategory: (category) => set({ currentCategory: category }),
 
-      increment: (id, repeatCount) =>
-        set((s) => ({
+      increment: (id, repeatCount) => {
+        const next = {
           counts: {
-            ...s.counts,
-            [id]: Math.min(repeatCount, (s.counts[id] ?? 0) + 1),
+            ...get().counts,
+            [id]: Math.min(repeatCount, (get().counts[id] ?? 0) + 1),
           },
-        })),
+        };
+        set(next);
+        syncAdhkarProgress(get().day, next.counts);
+      },
 
-      reset: (id) =>
-        set((s) => ({
-          counts: { ...s.counts, [id]: 0 },
-        })),
+      reset: (id) => {
+        const next = {
+          counts: { ...get().counts, [id]: 0 },
+        };
+        set(next);
+        syncAdhkarProgress(get().day, next.counts);
+      },
 
-      resetCategory: (category) =>
-        set((s) => {
-          const next = { ...s.counts };
-          for (const dhikr of getAdhkarByCategory(category)) {
-            next[dhikr.id] = 0;
-          }
-          return { counts: next };
-        }),
+      resetCategory: (category) => {
+        const next = { ...get().counts };
+        for (const dhikr of getAdhkarByCategory(category)) {
+          next[dhikr.id] = 0;
+        }
+        set({ counts: next });
+        syncAdhkarProgress(get().day, next);
+      },
 
-      resetAll: () => set({ counts: {} }),
+      resetAll: () => {
+        set({ counts: {} });
+        syncAdhkarProgress(get().day, {});
+      },
     }),
     {
       name: 'morven-adhkar',

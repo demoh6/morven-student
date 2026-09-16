@@ -78,6 +78,21 @@ export async function createTask(
   return res.task;
 }
 
+export async function updateTask(
+  id: string,
+  data: Record<string, unknown>,
+): Promise<ServerTask> {
+  const res = await authRequest<{ task: ServerTask }>(`/api/tasks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.task;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  await authRequest(`/api/tasks/${id}`, { method: 'DELETE' });
+}
+
 // Exams -------------------------------------------------------------------
 
 export async function fetchExams(): Promise<ServerExam[]> {
@@ -93,6 +108,21 @@ export async function createExam(
     body: JSON.stringify(data),
   });
   return res.exam;
+}
+
+export async function updateExam(
+  id: string,
+  data: Record<string, unknown>,
+): Promise<ServerExam> {
+  const res = await authRequest<{ exam: ServerExam }>(`/api/exams/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.exam;
+}
+
+export async function deleteExam(id: string): Promise<void> {
+  await authRequest(`/api/exams/${id}`, { method: 'DELETE' });
 }
 
 // Flashcards --------------------------------------------------------------
@@ -117,6 +147,21 @@ export async function createFlashcard(
   return res.flashcard;
 }
 
+export async function updateFlashcard(
+  id: string,
+  data: Record<string, unknown>,
+): Promise<ServerFlashcard> {
+  const res = await authRequest<{ flashcard: ServerFlashcard }>(`/api/flashcards/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.flashcard;
+}
+
+export async function deleteFlashcard(id: string): Promise<void> {
+  await authRequest(`/api/flashcards/${id}`, { method: 'DELETE' });
+}
+
 // Notes -------------------------------------------------------------------
 
 export async function fetchNotes(
@@ -135,6 +180,21 @@ export async function createNote(
     body: JSON.stringify(data),
   });
   return res.note;
+}
+
+export async function updateNote(
+  id: string,
+  data: Record<string, unknown>,
+): Promise<ServerNote> {
+  const res = await authRequest<{ note: ServerNote }>(`/api/notes/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.note;
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await authRequest(`/api/notes/${id}`, { method: 'DELETE' });
 }
 
 // User files (metadata + bytes) -------------------------------------------

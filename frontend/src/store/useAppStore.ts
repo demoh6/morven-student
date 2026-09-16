@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import type { ToolCategory, Notification, FileItem, Task, ExamCountdown, Flashcard } from '@/types';
 import { v4 as uuid } from 'uuid';
 import { readScoped, writeScoped } from '@/storage/scope';
+import {
+  syncCreateTask, syncUpdateTask, syncDeleteTask,
+  syncCreateExam, syncDeleteExam,
+  syncCreateFlashcard, syncDeleteFlashcard,
+} from '@/services/syncService';
+import { replaceRecordId } from '@/services/syncService';
 
 interface AppStore {
   // Sidebar
@@ -44,6 +50,25 @@ const loadState = <T>(key: string, fallback: T): T => readScoped(key, fallback);
 
 const saveState = (key: string, value: unknown) => writeScoped(key, value);
 
+function replaceLocalId(scopeKey: string, localId: string, serverId: string) {
+  if (serverId === localId) return;
+  replaceRecordId(scopeKey, localId, serverId);
+  const state = useAppStore.getState();
+  if (scopeKey === 'tasks') {
+    const updated = state.tasks.map(t => t.id === localId ? { ...t, id: serverId } : t);
+    saveState('tasks', updated);
+    useAppStore.setState({ tasks: updated });
+  } else if (scopeKey === 'exams') {
+    const updated = state.exams.map(e => e.id === localId ? { ...e, id: serverId } : e);
+    saveState('exams', updated);
+    useAppStore.setState({ exams: updated });
+  } else if (scopeKey === 'flashcards') {
+    const updated = state.flashcards.map(f => f.id === localId ? { ...f, id: serverId } : f);
+    saveState('flashcards', updated);
+    useAppStore.setState({ flashcards: updated });
+  }
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   sidebarOpen: true,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -74,8 +99,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   tasks: loadState('tasks', []),
   addTask: (title, description, priority = 'medium', dueDate, taskType, dailyTime) => {
+    const localId = uuid();
     const task: Task = {
-      id: uuid(),
+      id: localId,
       title,
       description,
       completed: false,
@@ -89,40 +115,57 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = [...get().tasks, task];
     saveState('tasks', next);
     set({ tasks: next });
+    // Fire-and-forget: sync to server, replace local ID with server ID
+    syncCreateTask(localId, {
+      title, description: description ?? null, completed: false,
+      priority, dueDate: dueDate ?? null, taskType: taskType ?? 'normal', dailyTime: dailyTime ?? null,
+    }).then((serverId) => { if (serverId) replaceLocalId('tasks', localId, serverId); }).catch(() => {});
   },
   updateTask: (id, updates) => {
     const next = get().tasks.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t));
     saveState('tasks', next);
     set({ tasks: next });
+    syncUpdateTask(id, updates).catch(() => {});
   },
   deleteTask: (id) => {
     const next = get().tasks.filter((t) => t.id !== id);
     saveState('tasks', next);
     set({ tasks: next });
+    syncDeleteTask(id).catch(() => {});
   },
   toggleTask: (id) => {
-    const next = get().tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed, updatedAt: Date.now() } : t));
+    const task = get().tasks.find((t) => t.id === id);
+    if (!task) return;
+    const completed = !task.completed;
+    const next = get().tasks.map((t) => (t.id === id ? { ...t, completed, updatedAt: Date.now() } : t));
     saveState('tasks', next);
     set({ tasks: next });
+    syncUpdateTask(id, { completed }).catch(() => {});
   },
 
   exams: loadState('exams', []),
   addExam: (name, date, color) => {
-    const exam: ExamCountdown = { id: uuid(), name, date, color, createdAt: Date.now() };
+    const localId = uuid();
+    const exam: ExamCountdown = { id: localId, name, date, color, createdAt: Date.now() };
     const next = [...get().exams, exam];
     saveState('exams', next);
     set({ exams: next });
+    syncCreateExam(localId, { name, date, color })
+      .then((serverId) => { if (serverId) replaceLocalId('exams', localId, serverId); })
+      .catch(() => {});
   },
   deleteExam: (id) => {
     const next = get().exams.filter((e) => e.id !== id);
     saveState('exams', next);
     set({ exams: next });
+    syncDeleteExam(id).catch(() => {});
   },
 
   flashcards: loadState('flashcards', []),
   addFlashcard: (front, back, deck) => {
+    const localId = uuid();
     const card: Flashcard = {
-      id: uuid(),
+      id: localId,
       front,
       back,
       deck,
@@ -134,10 +177,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = [...get().flashcards, card];
     saveState('flashcards', next);
     set({ flashcards: next });
+    syncCreateFlashcard(localId, { front, back, deck })
+      .then((serverId) => { if (serverId) replaceLocalId('flashcards', localId, serverId); })
+      .catch(() => {});
   },
   deleteFlashcard: (id) => {
     const next = get().flashcards.filter((c) => c.id !== id);
     saveState('flashcards', next);
     set({ flashcards: next });
+    syncDeleteFlashcard(id).catch(() => {});
   },
 }));

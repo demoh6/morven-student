@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { v4 as uuid } from 'uuid';
 import type { Note } from '@/types';
 import { scopedStorage } from '@/storage/scopedStorage';
+import { syncCreateNote, syncUpdateNote, syncDeleteNote } from '@/services/syncService';
 
 interface NotesStore {
   notes: Note[];
@@ -26,21 +27,36 @@ export const useNotesStore = create<NotesStore>()(
       notes: [],
       createNote: (title = '', content = '') => {
         const now = Date.now();
-        const note: Note = { id: uuid(), title, content, pinned: false, createdAt: now, updatedAt: now };
+        const localId = uuid();
+        const note: Note = { id: localId, title, content, pinned: false, createdAt: now, updatedAt: now };
         set((s) => ({ notes: [note, ...s.notes] }));
-        return note.id;
+        // Fire-and-forget sync
+        syncCreateNote(localId, { title, content }).then((serverId) => {
+          if (serverId && serverId !== localId) {
+            set((s) => ({ notes: s.notes.map(n => n.id === localId ? { ...n, id: serverId } : n) }));
+          }
+        }).catch(() => {});
+        return localId;
       },
-      updateNote: (id, updates) =>
+      updateNote: (id, updates) => {
         set((s) => ({
           notes: s.notes.map((n) =>
             n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n,
           ),
-        })),
-      deleteNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
-      togglePin: (id) =>
+        }));
+        syncUpdateNote(id, updates).catch(() => {});
+      },
+      deleteNote: (id) => {
+        set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
+        syncDeleteNote(id).catch(() => {});
+      },
+      togglePin: (id) => {
         set((s) => ({
-          notes: s.notes.map((n) => (n.id === id ? { ...n, pinned: !n.pinned } : n)),
-        })),
+          notes: s.notes.map((n) => (n.id === id ? { ...n, pinned: !n.pinned, updatedAt: Date.now() } : n)),
+        }));
+        const note = get().notes.find((n) => n.id === id);
+        if (note) syncUpdateNote(id, { pinned: note.pinned }).catch(() => {});
+      },
       searchNotes: (query) => {
         const q = query.trim().toLowerCase();
         const all = sortNotes(get().notes);

@@ -29,6 +29,7 @@ import { usePomodoroStore, loadCurrentPomodoroSnapshot } from '@/pages/tools/Gen
 import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore';
 import { rekeyGuestFilesToAccount, getAllFiles } from '@/services/fileStorage';
 import { syncFileToServer } from '@/services/fileSync';
+import { pushLocalRecordsUp } from '@/services/syncService';
 import { openDB, FILE_STORE } from '@/services/db';
 import type { StoredFile } from '@/services/db';
 
@@ -646,6 +647,10 @@ async function applyAccount(userId: string): Promise<void> {
 
     // 2. Hydrate from server (server is source of truth)
     await hydrateFromServer();
+
+    // 3. Push local-only records up (offline-created, or create-sync that
+    //    failed). Idempotent via clientId; replaces local id with server id.
+    await pushLocalRecordsUp().catch(() => {});
   } finally {
     // 3. Rehydrate in-memory stores to the new scope — MUST run even if a
     //    server/IDB call threw, so the authenticated scope is always the

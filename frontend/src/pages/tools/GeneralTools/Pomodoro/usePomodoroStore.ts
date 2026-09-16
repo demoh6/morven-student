@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { scopedKey } from '@/storage/scope';
+import { syncPomodoroSession } from '@/services/syncService';
 
 export type PomodoroMode = 'focus' | 'break' | 'longBreak';
 
@@ -211,6 +212,8 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     };
     update(next, isFocus ? 'break' : 'focus');
     notifyCompletion(isFocus ? 'break' : 'focus');
+    // Fire-and-forget: record completed focus session on server for cross-device sync
+    if (isFocus) syncPomodoroSession(focusedSeconds).catch(() => {});
   };
 
   return {
