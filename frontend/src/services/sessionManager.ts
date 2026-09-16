@@ -30,6 +30,7 @@ import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore
 import { rekeyGuestFilesToAccount, getAllFiles } from '@/services/fileStorage';
 import { syncFileToServer } from '@/services/fileSync';
 import { pushLocalRecordsUp } from '@/services/syncService';
+import { isPending } from '@/services/pendingCreate';
 import { openDB, FILE_STORE } from '@/services/db';
 import type { StoredFile } from '@/services/db';
 
@@ -183,6 +184,12 @@ async function hydrateFromServer(): Promise<void> {
     r.status === 'fulfilled' ? r.value : fallback;
 
   // --- Tasks: merge server INTO local (local wins for same-id, server fills gaps) ---
+  // A local-only record is kept ONLY when it is a genuinely pending local
+  // creation (created here, never acknowledged by the server). A local record
+  // that is missing from the server and IS NOT pending was deleted on another
+  // device — drop it instead of resurrecting it. When the fetch failed we
+  // cannot say anything authoritative, so we keep all local data (offline-safe).
+  const tasksFetched = settled[0].status === 'fulfilled';
   const serverTasks = pick(settled[0], [] as api.ServerTask[]).map((t) => ({
     id: t.id,
     title: t.title,
@@ -202,10 +209,11 @@ async function hydrateFromServer(): Promise<void> {
     if (local && local.updatedAt >= st.updatedAt) return local;
     return st;
   });
-  // keep local records not on server (pending sync / local-only)
   const serverIds = new Set(serverTasks.map((t) => t.id));
   for (const lt of localTasks) {
-    if (!serverIds.has(lt.id)) mergedTasks.push(lt);
+    if (serverIds.has(lt.id)) continue;
+    if (tasksFetched && !isPending('tasks', lt.id)) continue; // deleted elsewhere
+    mergedTasks.push(lt);
   }
   writeScoped('tasks', mergedTasks);
 

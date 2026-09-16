@@ -8,6 +8,7 @@ import {
   syncCreateFlashcard, syncDeleteFlashcard,
 } from '@/services/syncService';
 import { replaceRecordId } from '@/services/syncService';
+import { addPendingId, removePendingId } from '@/services/pendingCreate';
 
 interface AppStore {
   // Sidebar
@@ -115,11 +116,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = [...get().tasks, task];
     saveState('tasks', next);
     set({ tasks: next });
+    // Track this local id as "created locally, not yet acknowledged by server".
+    // Hydration uses this to avoid resurrecting records deleted on another
+    // device (those are local-only but NOT pending).
+    addPendingId('tasks', localId);
     // Fire-and-forget: sync to server, replace local ID with server ID
     syncCreateTask(localId, {
       title, description: description ?? null, completed: false,
       priority, dueDate: dueDate ?? null, taskType: taskType ?? 'normal', dailyTime: dailyTime ?? null,
-    }).then((serverId) => { if (serverId) replaceLocalId('tasks', localId, serverId); }).catch(() => {});
+    }).then((serverId) => {
+      if (serverId) {
+        replaceLocalId('tasks', localId, serverId);
+        removePendingId('tasks', localId);
+      }
+    }).catch(() => {});
   },
   updateTask: (id, updates) => {
     const next = get().tasks.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t));
@@ -131,6 +141,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = get().tasks.filter((t) => t.id !== id);
     saveState('tasks', next);
     set({ tasks: next });
+    removePendingId('tasks', id);
     syncDeleteTask(id).catch(() => {});
   },
   toggleTask: (id) => {
