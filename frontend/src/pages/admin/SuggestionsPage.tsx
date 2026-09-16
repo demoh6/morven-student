@@ -73,7 +73,7 @@ export default function SuggestionsPage() {
             </h2>
 
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              شاركنا اقتراحاتك وأفكارك لتحسين مورفن، سنقرأ كل ما تصلك بعناية.
+              شاركنا اقتراحاتك وأفكارك لتحسين مورفن، سنقرأ كل اقتراح بعناية.
             </p>
 
             {error && (

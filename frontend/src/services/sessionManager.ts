@@ -588,14 +588,19 @@ async function applyAccount(userId: string): Promise<void> {
   // Switch scope — all scoped reads now target this account's namespace
   setScopeToAccount(userId);
 
-  // 1. Migrate guest data → server (idempotent via clientId, data-safe)
-  await applyMigrationForUser(userId);
+  try {
+    // 1. Migrate guest data → server (idempotent via clientId, data-safe)
+    await applyMigrationForUser(userId);
 
-  // 2. Hydrate from server (server is source of truth)
-  await hydrateFromServer();
-
-  // 3. Rehydrate in-memory stores to the new scope
-  rehydrateAllStores();
+    // 2. Hydrate from server (server is source of truth)
+    await hydrateFromServer();
+  } finally {
+    // 3. Rehydrate in-memory stores to the new scope — MUST run even if a
+    //    server/IDB call threw, so the authenticated scope is always the
+    //    mounted one and the user's local account data is never hidden behind
+    //    a stale boot hydration.
+    rehydrateAllStores();
+  }
 
   // 4. Sync indicator — success only when nothing is still pending; otherwise
   //    inform the user that the remainder will finish automatically on retry.
@@ -615,9 +620,15 @@ async function applyAccount(userId: string): Promise<void> {
   }
 }
 
-function applyGuestScope(prevUserId: string | null): void {
+function applyGuestScope(prevUserId: string | null, clearAccount = false): void {
   setScopeToGuest();
-  if (prevUserId) clearAccountScope(prevUserId);
+  // Wiping the account's local keys is ONLY performed on an explicit user
+  // logout (logout isolation). When boot finds no session (expired/none) it
+  // merely retargets the active scope to guest and LEAVES the account data in
+  // place — a transient or unexpected boot-time auth failure must never destroy
+  // the user's local account snapshot (the server remains the source of truth,
+  // so re-login restores it; offline it must survive).
+  if (prevUserId && clearAccount) clearAccountScope(prevUserId);
   rehydrateAllStores();
 }
 
@@ -652,7 +663,7 @@ export function bootstrapSession(): void {
 
     // Logout (user becomes null)
     if (!state.user && prev.user) {
-      applyGuestScope(prev.user.id);
+      applyGuestScope(prev.user.id, true);
     }
   });
 }
