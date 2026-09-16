@@ -2432,7 +2432,7 @@ function MedicalNotesTool() {
               {!editingId && (
                 <div className="pt-5">
                   <Button variant="ghost" onClick={() => setTemplateModal(true)}>
-                    📋 {'استخدام القالب'}
+                     {'استخدام القالب'}
                   </Button>
                 </div>
               )}

@@ -22,6 +22,7 @@ interface NotificationState {
   notifications: Notification[];
   unreadCount: number;
   loading: boolean;
+  dismissedIds: string[];
   addNotification: (n: Omit<Notification, 'id' | 'createdAt' | 'read'>) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -58,6 +59,25 @@ const MOCK_NOTIFICATIONS: Notification[] = [
   },
 ];
 
+const DISMISSED_KEY = 'morven:dismissedNotifications';
+
+function loadDismissedIds(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistDismissedIds(ids: string[]) {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids));
+  } catch {
+    /* storage full or unavailable — silently ignore */
+  }
+}
+
 function recompute(state: NotificationState, notifications: Notification[]): Partial<NotificationState> {
   return {
     notifications,
@@ -71,6 +91,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: isPreviewMode() ? MOCK_NOTIFICATIONS : [],
   unreadCount: isPreviewMode() ? MOCK_NOTIFICATIONS.filter((n) => !n.read).length : 0,
   loading: false,
+  dismissedIds: isPreviewMode() ? [] : loadDismissedIds(),
 
   addNotification: (n) => {
     const notification: Notification = {
@@ -127,7 +148,10 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const n = get().notifications.find((x) => x.id === id);
     if (!n) return;
     if (!n.read) markAsReadApi(id).catch(() => {});
+    const nextDismissed = [...new Set([...get().dismissedIds, id])];
+    persistDismissedIds(nextDismissed);
     set((state) => ({
+      dismissedIds: nextDismissed,
       notifications: state.notifications.filter((x) => x.id !== id),
     }));
   },
@@ -138,7 +162,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ loading: true });
     try {
       const { notifications: server } = await fetchNotificationsApi();
-      set((state) => ({ ...recompute(state, server), loading: false }));
+      const dismissed = new Set(get().dismissedIds);
+      const filtered = server.filter((n) => !dismissed.has(n.id));
+      set((state) => ({ ...recompute(state, filtered), loading: false }));
     } catch {
       set({ loading: false });
     }

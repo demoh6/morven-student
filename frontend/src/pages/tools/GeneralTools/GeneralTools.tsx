@@ -1,4 +1,4 @@
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -1144,7 +1144,7 @@ function TaskManager() {
       {/* Task List */}
       {filteredTasks.length === 0 ? (
         <EmptyState
-          icon={<span className="text-4xl">📋</span>}
+          icon={<CheckCircle2 className="w-9 h-9" />}
           title={searchQuery
             ? ('لا توجد نتائج')
             : 'لا توجد مهام بعد'
