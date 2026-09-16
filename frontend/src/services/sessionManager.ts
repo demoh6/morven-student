@@ -181,8 +181,8 @@ async function hydrateFromServer(): Promise<void> {
   const pick = <T>(r: PromiseSettledResult<T>, fallback: T) =>
     r.status === 'fulfilled' ? r.value : fallback;
 
-  // Tasks: convert server shape → local Task shape
-  const tasks = pick(settled[0], [] as api.ServerTask[]).map((t) => ({
+  // --- Tasks: merge server INTO local (local wins for same-id, server fills gaps) ---
+  const serverTasks = pick(settled[0], [] as api.ServerTask[]).map((t) => ({
     id: t.id,
     title: t.title,
     description: t.description || undefined,
@@ -194,22 +194,40 @@ async function hydrateFromServer(): Promise<void> {
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
   }));
-  writeScoped('tasks', tasks);
+  const localTasks = readScoped<Array<{ id: string; updatedAt: number }>>('tasks', []);
+  const localTaskMap = new Map(localTasks.map((t) => [t.id, t]));
+  const mergedTasks = serverTasks.map((st) => {
+    const local = localTaskMap.get(st.id);
+    if (local && local.updatedAt >= st.updatedAt) return local;
+    return st;
+  });
+  // keep local records not on server (pending sync / local-only)
+  const serverIds = new Set(serverTasks.map((t) => t.id));
+  for (const lt of localTasks) {
+    if (!serverIds.has(lt.id)) mergedTasks.push(lt);
+  }
+  writeScoped('tasks', mergedTasks);
 
-  // Exams
-  const exams = pick(settled[1], [] as api.ServerExam[]).map((e) => ({
+  // --- Exams: merge server INTO local ---
+  const serverExams = pick(settled[1], [] as api.ServerExam[]).map((e) => ({
     id: e.id,
     name: e.name,
     date: e.date,
     color: e.color,
     createdAt: e.createdAt,
   }));
-  writeScoped('exams', exams);
+  const localExams = readScoped<Array<{ id: string; createdAt: number }>>('exams', []);
+  const localExamIds = new Set(localExams.map((e) => e.id));
+  const mergedExams = [...localExams];
+  for (const se of serverExams) {
+    if (!localExamIds.has(se.id)) mergedExams.push(se);
+  }
+  writeScoped('exams', mergedExams);
 
-  // Flashcards (merge general + medical)
+  // --- Flashcards (general + medical): merge server INTO local ---
   const generalFC = pick(settled[2], [] as api.ServerFlashcard[]);
   const medicalFC = pick(settled[3], [] as api.ServerFlashcard[]);
-  const flashcards = [...generalFC, ...medicalFC].map((f) => ({
+  const serverFlashcards = [...generalFC, ...medicalFC].map((f) => ({
     id: f.id,
     front: f.front,
     back: f.back,
@@ -221,12 +239,23 @@ async function hydrateFromServer(): Promise<void> {
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
   }));
-  writeScoped('flashcards', flashcards);
+  const localFlashcards = readScoped<Array<{ id: string; updatedAt: number }>>('flashcards', []);
+  const localFCMap = new Map(localFlashcards.map((f) => [f.id, f]));
+  const mergedFlashcards = serverFlashcards.map((sf) => {
+    const local = localFCMap.get(sf.id);
+    if (local && local.updatedAt >= sf.updatedAt) return local;
+    return sf;
+  });
+  const serverFCIds = new Set(serverFlashcards.map((f) => f.id));
+  for (const lf of localFlashcards) {
+    if (!serverFCIds.has(lf.id)) mergedFlashcards.push(lf);
+  }
+  writeScoped('flashcards', mergedFlashcards);
 
-  // Notes (merge general + medical)
+  // --- Notes (general + medical): merge server INTO local ---
   const generalN = pick(settled[4], [] as api.ServerNote[]);
   const medicalN = pick(settled[5], [] as api.ServerNote[]);
-  const notes = [...generalN, ...medicalN].map((n) => ({
+  const serverNotes = [...generalN, ...medicalN].map((n) => ({
     id: n.id,
     title: n.title,
     content: n.content,
@@ -234,9 +263,21 @@ async function hydrateFromServer(): Promise<void> {
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }));
-  writeScoped('notes', { state: { notes }, version: 0 });
+  const localNotesRaw = readScoped<{ state?: { notes: Array<{ id: string; updatedAt: number }> }; version?: number } | undefined>('notes', undefined);
+  const localNotes = localNotesRaw?.state?.notes ?? [];
+  const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
+  const mergedNotes = serverNotes.map((sn) => {
+    const local = localNotesMap.get(sn.id);
+    if (local && local.updatedAt >= sn.updatedAt) return local;
+    return sn;
+  });
+  const serverNoteIds = new Set(serverNotes.map((n) => n.id));
+  for (const ln of localNotes) {
+    if (!serverNoteIds.has(ln.id)) mergedNotes.push(ln);
+  }
+  writeScoped('notes', { state: { notes: mergedNotes }, version: 0 });
 
-  // Pomodoro stats
+  // --- Pomodoro stats: keep local if higher (Math.max) ---
   const pomo = pick(settled[6], null as api.ServerPomodoroStats | null);
   if (pomo) {
     const current = usePomodoroStore.getState();
@@ -248,20 +289,31 @@ async function hydrateFromServer(): Promise<void> {
     });
   }
 
-  // Adhkar progress
+  // --- Adhkar progress: merge by maxing counts ---
   const dhikr = pick(settled[7], null as api.ServerAdhkarProgress | null);
   if (dhikr && dhikr.day === todayKey()) {
-    writeScoped('adhkar', { state: { counts: dhikr.counts, day: dhikr.day }, version: 0 });
+    const localAdhkar = readScoped<{ state?: { counts?: Record<string, number>; day?: string } } | undefined>('adhkar', undefined);
+    const localCounts = localAdhkar?.state?.counts ?? {};
+    const mergedCounts: Record<string, number> = {};
+    const allKeys = new Set([...Object.keys(dhikr.counts), ...Object.keys(localCounts)]);
+    for (const k of allKeys) {
+      mergedCounts[k] = Math.max(localCounts[k] ?? 0, dhikr.counts[k] ?? 0);
+    }
+    writeScoped('adhkar', { state: { counts: mergedCounts, day: dhikr.day }, version: 0 });
   }
 
   // Files — server metadata for remote-only record creation
   const serverFiles = pick(settled[8], [] as api.ServerUserFile[]);
   await hydrateServerFilesIntoIDB(serverFiles);
 
-  // Stats (achievement counters from server — source of truth after login)
+  // --- Stats (achievement counters): keep local if higher (Math.max) ---
   const ach = pick(settled[9], { cardsReviewed: 0, quizzesCompleted: 0 });
+  const localStats = readScoped<{ state?: { cardsReviewed?: number; quizzesCompleted?: number } } | undefined>('stats', undefined);
   writeScoped('stats', {
-    state: { cardsReviewed: ach.cardsReviewed, quizzesCompleted: ach.quizzesCompleted },
+    state: {
+      cardsReviewed: Math.max(localStats?.state?.cardsReviewed ?? 0, ach.cardsReviewed),
+      quizzesCompleted: Math.max(localStats?.state?.quizzesCompleted ?? 0, ach.quizzesCompleted),
+    },
     version: 0,
   });
 }
