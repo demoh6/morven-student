@@ -52,11 +52,14 @@ export async function markNotificationAsRead(
   userId: string,
   notificationId: string
 ): Promise<boolean> {
+  // The caller must own the notification or it must be a broadcast (targetUserId null).
+  // Without this check any user could mark any targeted notification as read.
   const existing = await prisma.appNotification.findUnique({
     where: { id: notificationId },
-    select: { id: true },
+    select: { id: true, targetUserId: true },
   });
   if (!existing) return false;
+  if (existing.targetUserId !== null && existing.targetUserId !== userId) return false;
 
   await prisma.userNotificationRead.upsert({
     where: { userId_notificationId: { userId, notificationId } },

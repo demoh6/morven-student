@@ -72,6 +72,7 @@ async function startImageJob(
   req: Request,
   res: Response,
   options: {
+    userId?: string;
     label: string;
     filePaths: string[];
     /** Original filenames aligned with filePaths (for extension checks). */
@@ -100,7 +101,7 @@ async function startImageJob(
       }
     }
 
-    const job = MediaJobsService.createJob(options.filePaths, options.downloadName);
+    const job = MediaJobsService.createJob(options.filePaths, options.downloadName, options.userId);
     console.log(`[media] job ${job.id} started (${options.label}, image)`);
     MediaJobsService.start(job, "", (ctx) => options.run(ctx));
     res.status(202).json({ jobId: job.id });
@@ -163,6 +164,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/remove-bg",
       filePaths: [req.file!.path],
       downloadName: `${sanitizeBaseName(req.file?.originalname || "image")}-no-bg.png`,
@@ -202,6 +204,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/resize",
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-resized"),
@@ -230,6 +233,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/crop",
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-cropped"),
@@ -258,6 +262,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/rotate",
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-rotated"),
@@ -332,6 +337,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/adjust",
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-adjusted"),
@@ -369,6 +375,7 @@ export class ImageController {
     }
 
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: `image/blur-regions/${effect}`,
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-hidden"),
@@ -441,6 +448,7 @@ export class ImageController {
         );
         const color = parseHexColor(req.body?.color, "#ffffff");
         await startImageJob(req, res, {
+          userId: req.user?.sub,
           label: "image/watermark-text",
           filePaths: [base!.path],
           contentNames: [base!.originalname],
@@ -471,6 +479,7 @@ export class ImageController {
         "Logo size"
       );
       await startImageJob(req, res, {
+        userId: req.user?.sub,
         label: "image/watermark-logo",
         filePaths: [base!.path, logo.path],
         contentNames: [base!.originalname, logo.originalname],
@@ -500,6 +509,7 @@ export class ImageController {
   /** POST /api/media/image/strip-metadata — removes EXIF/GPS/XMP/IPTC. */
   static async stripMetadata(req: Request, res: Response): Promise<void> {
     await startImageJob(req, res, {
+      userId: req.user?.sub,
       label: "image/strip-metadata",
       filePaths: [req.file!.path],
       downloadName: outputBase(req.file?.originalname, "-clean"),

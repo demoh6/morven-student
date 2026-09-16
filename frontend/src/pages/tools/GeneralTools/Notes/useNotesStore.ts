@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { v4 as uuid } from 'uuid';
 import type { Note } from '@/types';
+import { scopedStorage } from '@/storage/scopedStorage';
 
 interface NotesStore {
   notes: Note[];
@@ -51,6 +52,7 @@ export const useNotesStore = create<NotesStore>()(
     }),
     {
       name: 'morven-notes',
+      storage: createJSONStorage(() => scopedStorage),
     },
   ),
 );

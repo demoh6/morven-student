@@ -20,6 +20,14 @@ import resourceRoutes from "./routes/resource";
 import notificationRoutes from "./routes/notification";
 import suggestionRoutes from "./routes/suggestion";
 import adhkarRoutes from "./routes/adhkar";
+import taskRoutes from "./routes/task";
+import examRoutes from "./routes/exam";
+import flashcardRoutes from "./routes/flashcard";
+import noteRoutes from "./routes/note";
+import userFileRoutes from "./routes/userFile";
+import pomodoroStatsRoutes from "./routes/pomodoroStats";
+import adhkarProgressRoutes from "./routes/adhkarProgress";
+import userPreferenceRoutes from "./routes/userPreference";
 import adminRoutes from "./routes/admin";
 
 const app = express();
@@ -56,6 +64,9 @@ try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch { /* ignore */ }
 // download endpoint). Block the sub-path before the static middleware so it
 // cannot be fetched unauthenticated.
 app.use("/uploads/resources", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+app.use("/uploads/user-files", (_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 app.use("/uploads", express.static(UPLOADS_DIR, { maxAge: "30d", immutable: true }));
@@ -137,6 +148,14 @@ app.use(resourceRoutes);
 app.use(notificationRoutes);
 app.use(suggestionRoutes);
 app.use(adhkarRoutes);
+app.use(taskRoutes);
+app.use(examRoutes);
+app.use(flashcardRoutes);
+app.use(noteRoutes);
+app.use(userFileRoutes);
+app.use(pomodoroStatsRoutes);
+app.use(adhkarProgressRoutes);
+app.use(userPreferenceRoutes);
 app.use(adminRoutes);
 
 // Existing file-processing routes (no auth required)

@@ -235,6 +235,7 @@ function sanitizeAchievements(a: AchievementWithUsername) {
 /**
  * Sync the current user's achievements counters (seeded from the dashboard data).
  * Creates the row if it doesn't exist yet.
+ * This is the existing PUT path (overwrite); kept for frontend compatibility.
  */
 export async function syncMyAchievements(userId: string, values: AchievementValues) {
   const data = {
@@ -254,6 +255,67 @@ export async function syncMyAchievements(userId: string, values: AchievementValu
   });
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Additive achievements increment (safe for concurrent post-completion saves)
+// ---------------------------------------------------------------------------
+
+export const incrementAchievementsSchema = z
+  .object({
+    completedTasks: z.number().int().min(0).optional(),
+    cardsReviewed: z.number().int().min(0).optional(),
+    completedSessions: z.number().int().min(0).optional(),
+    meaningfulNotes: z.number().int().min(0).optional(),
+    files: z.number().int().min(0).optional(),
+    flashcards: z.number().int().min(0).optional(),
+    quizzesCompleted: z.number().int().min(0).optional(),
+  })
+  .refine(
+    (vals) => Object.values(vals).some((v) => v !== undefined && v > 0),
+    { message: "أرسل قيمة أكبر من الصفر لشريحة واحدة على الأقل" }
+  );
+
+export type IncrementAchievementsInput = z.infer<typeof incrementAchievementsSchema>;
+
+/**
+ * Atomically increment the current user's achievement counters. Row is
+ * created on first write (upsert). Unlike the PUT overwrite path, this
+ * is safe for concurrent completions — every post-completion save adds
+ * exactly +1 (or more if the client explicitly says so).
+ */
+export async function incrementMyAchievements(
+  userId: string,
+  input: IncrementAchievementsInput
+) {
+  const incrementData: Record<string, { increment: number }> = {};
+  const createData: Record<string, number> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined && value > 0) {
+      incrementData[key] = { increment: value };
+      createData[key] = value;
+    }
+  }
+
+  if (Object.keys(incrementData).length === 0) {
+    throw new Error("أرسل قيمة أكبر من الصفر لشريحة واحدة على الأقل");
+  }
+
+  const achievements = await prisma.userAchievement.upsert({
+    where: { userId },
+    update: incrementData,
+    create: { userId, ...createData },
+  });
+
+  return {
+    completedTasks: achievements.completedTasks,
+    cardsReviewed: achievements.cardsReviewed,
+    completedSessions: achievements.completedSessions,
+    meaningfulNotes: achievements.meaningfulNotes,
+    files: achievements.files,
+    flashcards: achievements.flashcards,
+    quizzesCompleted: achievements.quizzesCompleted,
+  };
 }
 
 /**

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { scopedKey } from '@/storage/scope';
 
 export type PomodoroMode = 'focus' | 'break' | 'longBreak';
 
@@ -41,7 +42,7 @@ interface PomodoroStore extends PomodoroSnapshot {
   setTheme: (theme: PomodoroTheme) => void;
 }
 
-const STORAGE_KEY = 'morven-pomodoro';
+const STORAGE_KEY = 'pomodoro';
 const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
   focusDuration: 25,
   breakDuration: 5,
@@ -88,7 +89,7 @@ const loadSnapshot = (): PomodoroSnapshot => {
     totalFocusSeconds: 0, lastFocusSeconds: 0, settings: DEFAULT_POMODORO_SETTINGS, endTimestamp: null,
   };
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(scopedKey(STORAGE_KEY));
     if (!saved) return fallback;
     const parsed = JSON.parse(saved) as Partial<PomodoroSnapshot>;
     const settings = { ...DEFAULT_POMODORO_SETTINGS, ...parsed.settings };
@@ -123,8 +124,14 @@ const loadSnapshot = (): PomodoroSnapshot => {
 };
 
 const saveSnapshot = (state: PomodoroSnapshot) => {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* storage unavailable */ }
+  try { localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(state)); } catch { /* storage unavailable */ }
 };
+
+/**
+ * Read the snapshot for the CURRENT scope. Exposed so the session manager can
+ * rehydrate the in-memory store after a guest ↔ account scope switch.
+ */
+export const loadCurrentPomodoroSnapshot = (): PomodoroSnapshot => loadSnapshot();
 
 const requestNotificationPermission = () => {
   if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission();

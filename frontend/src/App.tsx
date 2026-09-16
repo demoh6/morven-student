@@ -12,6 +12,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { useThemeStore } from '@/store/useThemeStore';
 import { getToolById } from '@/data/tools';
+import { bootstrapSession } from '@/services/sessionManager';
 import type { ToolCategory } from '@/types';
 import Dashboard from '@/pages/Dashboard/Dashboard';
 import CategoryPage from '@/pages/CategoryPage';
@@ -113,6 +114,7 @@ export default function App() {
 
   useEffect(() => {
     useAuthStore.getState().initialize();
+    bootstrapSession();
   }, []);
 
   return (

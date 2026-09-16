@@ -129,3 +129,21 @@ export async function syncAchievements(
     body: JSON.stringify(counters),
   });
 }
+
+/**
+ * Increment the authenticated user's achievement counters (additive, never a
+ * destructive overwrite). Deltas must be positive integers.
+ */
+export async function incrementAchievements(
+  deltas: Partial<AchievementSync>,
+): Promise<void> {
+  const body: Record<string, number> = {};
+  for (const [k, v] of Object.entries(deltas) as Array<[keyof AchievementSync, number]>) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) body[k] = v;
+  }
+  if (Object.keys(body).length === 0) return;
+  await authRequest<{ ok: boolean }>(
+    '/api/profile/me/achievements/increment',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}

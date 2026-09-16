@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore';
+import { scopedKey } from '@/storage/scope';
 import AdhkarPage from '@/pages/tools/GeneralTools/Adhkar/AdhkarPage';
 import GeneralToolPage from '@/pages/tools/GeneralTools/GeneralTools';
 import {
@@ -158,7 +159,7 @@ describe('useAdhkarStore counter logic', () => {
 
   it('persists counters to localStorage', () => {
     useAdhkarStore.getState().increment('me-asbahna', 1);
-    const saved = JSON.parse(localStorage.getItem('morven-adhkar') as string);
+    const saved = JSON.parse(localStorage.getItem(scopedKey('adhkar')) as string);
     expect(saved.state.counts['me-asbahna']).toBe(1);
     expect(saved.state.day).toBe(todayKey());
   });
@@ -169,7 +170,7 @@ describe('useAdhkarStore counter logic', () => {
 
     // Simulate a new day arriving with persisted state from yesterday.
     localStorage.setItem(
-      'morven-adhkar',
+      scopedKey('adhkar'),
       JSON.stringify({
         state: { counts: { 'me-asbahna': 1 }, day: '2000-01-01' },
         version: 0,

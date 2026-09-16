@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { scopedStorage } from '@/storage/scopedStorage';
 
 interface StatsState {
   cardsReviewed: number;
@@ -18,6 +19,6 @@ export const useStatsStore = create<StatsState>()(
       incrementQuizzesCompleted: () =>
         set((s) => ({ quizzesCompleted: s.quizzesCompleted + 1 })),
     }),
-    { name: 'morven-stats' },
+    { name: 'morven-stats', storage: createJSONStorage(() => scopedStorage) },
   ),
 );

@@ -5,6 +5,7 @@ import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startBackend } from "./helpers/server.mjs";
+import { registerAndLogin } from "./helpers/auth.mjs";
 import { ensureFixtures, fixturesDir, isFfmpegUsable } from "./helpers/fixtures.mjs";
 
 const FFMPEG_PATH =
@@ -94,20 +95,32 @@ async function mediaWorkDirs() {
   }
 }
 
+let token = null;
+
+function apiFetch(url, init) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
 async function uploadAndAwait(baseUrl, endpoint, filePath, fields = {}, { timeoutMs = 120000 } = {}) {
   const form = new FormData();
   const bytes = await readFile(filePath);
   form.append("file", new Blob([bytes]), path.basename(filePath));
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
 
-  const started = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+  const started = await apiFetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
   if (!started.ok) return { started };
 
   const { jobId } = await started.json();
   const deadline = Date.now() + timeoutMs;
   let status = null;
   while (Date.now() < deadline) {
-    const res = await fetch(`${baseUrl}/api/media/jobs/${jobId}/status`);
+    const res = await apiFetch(`${baseUrl}/api/media/jobs/${jobId}/status`);
     status = await res.json();
     if (status.status === "done" || status.status === "error") break;
     await new Promise((r) => setTimeout(r, 500));
@@ -120,7 +133,7 @@ async function multipartPost(baseUrl, endpoint, filePath, fields = {}) {
   const bytes = await readFile(filePath);
   form.append("file", new Blob([bytes]), path.basename(filePath));
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
-  return fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+  return apiFetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
 }
 
 describe("remove-music API (validation, no separation engine needed)", { skip: skipReason }, () => {
@@ -130,6 +143,7 @@ describe("remove-music API (validation, no separation engine needed)", { skip: s
   before(async () => {
     fixtures = await ensureFixtures(FFMPEG_PATH);
     server = await startBackend({ FFMPEG_PATH });
+    token = await registerAndLogin(server.baseUrl, "rmuser");
   });
 
   after(async () => {
@@ -161,18 +175,21 @@ describe("remove-music API (validation, no separation engine needed)", { skip: s
   });
 
   it("unknown and erroring jobs return safe 404/409 for download-audio", async () => {
-    const res = await fetch(`${server.baseUrl}/api/media/jobs/nope/download-audio`);
+    const res = await apiFetch(`${server.baseUrl}/api/media/jobs/nope/download-audio`);
     assert.equal(res.status, 404);
     assert.equal((await res.json()).code, "JOB_NOT_FOUND");
   });
 
   it("rejects oversized uploads with 413 FILE_TOO_LARGE", async () => {
     const limitServer = await startBackend({ FFMPEG_PATH, MAX_VIDEO_SIZE_MB: "1" });
+    const prevToken = token;
+    token = await registerAndLogin(limitServer.baseUrl, "rmsize");
     try {
       const res = await multipartPost(limitServer.baseUrl, "/api/media/remove-music", fixtures.large, {});
       assert.equal(res.status, 413);
       assert.equal((await res.json()).code, "FILE_TOO_LARGE");
     } finally {
+      token = prevToken;
       await limitServer.stop();
     }
   });
@@ -190,6 +207,7 @@ describe(
       // Clean temp root so cleanup assertions only see artifacts of this run.
       await rm(path.join(TEMP_ROOT, "media"), { recursive: true, force: true });
       server = await startBackend({ FFMPEG_PATH });
+      token = await registerAndLogin(server.baseUrl, "rmdemucs");
     });
 
     after(async () => {
@@ -214,7 +232,7 @@ describe(
         // fetchable repeatedly without consuming the job.
         const audioFiles = [];
         for (let i = 0; i < 2; i++) {
-          const audio = await fetch(
+          const audio = await apiFetch(
             `${server.baseUrl}/api/media/jobs/${jobId}/download-audio`
           );
           assert.equal(audio.status, 200, `audio fetch #${i + 1}`);
@@ -229,7 +247,7 @@ describe(
         assert.deepEqual(audioFiles.map((b) => b.size), [audioFiles[0].size, audioFiles[0].size]);
 
         // Then the primary video download claims and cleans up the job.
-        const video = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+        const video = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
         assert.equal(video.status, 200);
         assert.match(video.headers.get("content-disposition") || "", /no-music\.mp4/i);
         const videoBlob = await video.blob();
@@ -238,7 +256,7 @@ describe(
         assert.ok(videoBlob.size > 1000, "video output should not be empty");
 
         // The consumed job is gone (files already cleaned by the download).
-        const after = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
+        const after = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
         assert.equal(after.status, 404, "downloaded job must be removed");
 
         await new Promise((r) => setTimeout(r, 1200));

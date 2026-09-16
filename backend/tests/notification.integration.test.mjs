@@ -378,6 +378,55 @@ describe("Notification per-user read state", () => {
     assert.equal(res.status, 404);
   });
 
+  it("a user cannot mark a targeted notification read when it is not theirs", async () => {
+    // A target-scoped notification (e.g. dhikr-rejection notice). The create
+    // API only makes global notices, so insert the targeted row directly.
+    const targeted = await prisma.appNotification.create({
+      data: {
+        title: "إشعار موجه",
+        body: "موجه لـ normalUser فقط",
+        type: "info",
+        createdBy: adminUser.user.id,
+        targetUserId: normalUser.user.id,
+      },
+    });
+    createdNotificationIds.push(targeted.id);
+
+    // The non-target user must NOT be able to mark it read (no existence oracle).
+    const foreignRead = await api(
+      server.baseUrl,
+      adminToken,
+      `/api/notifications/${targeted.id}/read`,
+      { method: "POST" }
+    );
+    assert.equal(foreignRead.res.status, 404, "foreign mark-as-read must be 404");
+
+    const foreignReadRow = await prisma.userNotificationRead.findUnique({
+      where: { userId_notificationId: { userId: adminUser.user.id, notificationId: targeted.id } },
+    });
+    assert.equal(foreignReadRow, null, "no read row may be created for a non-target user");
+
+    // The target user CAN mark it read, and it stays scoped to them.
+    const ownRead = await api(
+      server.baseUrl,
+      normalToken,
+      `/api/notifications/${targeted.id}/read`,
+      { method: "POST" }
+    );
+    assert.equal(ownRead.res.status, 200);
+    const ownReadRow = await prisma.userNotificationRead.findUnique({
+      where: { userId_notificationId: { userId: normalUser.user.id, notificationId: targeted.id } },
+    });
+    assert.ok(ownReadRow, "target user's read row must exist");
+
+    // The foreign user still cannot see it at all (list is target-scoped too).
+    const { data: adminList } = await api(server.baseUrl, adminToken, "/api/notifications");
+    assert.ok(
+      !adminList.notifications.some((x) => x.id === targeted.id),
+      "targeted notification must not leak into another user's list"
+    );
+  });
+
   it("unread endpoint flips a single notification back to unread", async () => {
     const n = await createNotice("unread");
     await api(server.baseUrl, normalToken, `/api/notifications/${n.id}/read`, {

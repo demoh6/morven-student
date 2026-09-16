@@ -51,6 +51,14 @@ export interface MediaJob {
   originalSize?: number;
   outputSize?: number;
   /**
+   * Owner of the job: the authenticated user's JWT `sub`, assigned at creation
+   * from req.user.sub. Never accepted from the client. Jobs created before
+   * ownership was enforced have no userId and are treated as unowned — they
+   * are invisible to every authenticated caller and only expire via the TTL
+   * sweeper.
+   */
+  userId?: string;
+  /**
    * Set synchronously when the first download request starts streaming.
    * Guarantees single-consumer download semantics: every later request
    * (concurrent or sequential) is deterministically rejected with 404.
@@ -105,7 +113,11 @@ export class MediaJobsService {
     }
   }
 
-  static createJob(inputPath: string | string[], fileName: string): MediaJob {
+  static createJob(
+    inputPath: string | string[],
+    fileName: string,
+    userId?: string
+  ): MediaJob {
     MediaJobsService.ensureSweeper();
     const paths = Array.isArray(inputPath) ? inputPath : [inputPath];
     const job: MediaJob = {
@@ -115,11 +127,24 @@ export class MediaJobsService {
       inputPath: paths[0],
       inputPaths: paths,
       fileName,
+      // Stamped from req.user.sub at creation; never client-supplied.
+      userId,
       controller: new AbortController(),
       createdAt: Date.now(),
     };
     MediaJobsService.jobs.set(job.id, job);
     return job;
+  }
+
+  /**
+   * Ownership check used by every job access endpoint (status, download,
+   * download-audio, DELETE). A job is reachable only by its owner. Jobs that
+   * predate ownership enforcement have no userId and are unowned — no caller
+   * can access them, and the TTL sweeper cleans them up as usual.
+   */
+  static canAccess(job: MediaJob | undefined, userId: string): job is MediaJob {
+    if (!job) return false;
+    return job.userId !== undefined && job.userId === userId;
   }
 
   /**

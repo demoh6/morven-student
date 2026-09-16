@@ -32,6 +32,14 @@ model User {
   suggestions   Suggestion[]
   dhikrSubmissions DhikrSubmission[]
   targetedNotifications AppNotification[] @relation("AppNotificationTarget")
+  tasks         Task[]
+  exams         Exam[]
+  flashcards    Flashcard[]
+  notes         Note[]
+  userFiles     UserFile[]
+  pomodoroStats PomodoroStats?
+  adhkarProgress AdhkarProgress[]
+  userPreference UserPreference?
 
   @@map("users")
 }
@@ -330,4 +338,216 @@ model ResourceLink {
 
   @@index([resourceId])
   @@map("resource_links")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account-scoped user models (Phase 1)
+//
+// These models back the features that were previously local-only (browser
+// localStorage / IndexedDB) and give every record a required, cascading owner
+// relationship to User. Rows are created by the authenticated user only and
+// filter queries by userId.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskType {
+  NORMAL
+  DAILY
+}
+
+enum NoteType {
+  GENERAL
+  MEDICAL
+}
+
+enum FlashcardType {
+  GENERAL
+  MEDICAL
+}
+
+enum FlashcardDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum PomodoroTheme {
+  CLASSIC
+  DIGITAL
+  NATURE
+}
+
+enum PomodoroTimerMode {
+  COUNTDOWN
+  COUNTUP
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  userId      String       @map("user_id")
+  title       String
+  description String?
+  completed   Boolean      @default(false)
+  priority    TaskPriority @default(MEDIUM)
+  // Local calendar date string ("YYYY-MM-DD"), matching the frontend Task shape.
+  dueDate     String?      @map("due_date")
+  taskType    TaskType     @default(NORMAL) @map("task_type")
+  // Local clock time string ("HH:mm") for daily recurring tasks.
+  dailyTime   String?      @map("daily_time")
+  // Stable client-generated id for idempotent guest→account migration.
+  clientId    String?      @map("client_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, clientId])
+  @@map("tasks")
+}
+
+model Exam {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  // Target date string ("YYYY-MM-DD"), matching the frontend ExamCountdown shape.
+  date      String
+  color     String
+  // Stable client-generated id for idempotent guest→account migration.
+  clientId  String?      @map("client_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, clientId])
+  @@map("exams")
+}
+
+model Flashcard {
+  id          String              @id @default(uuid())
+  userId      String              @map("user_id")
+  front       String
+  back        String
+  deck        String
+  // Distinguishes the general flashcards bucket from the medical one so both
+  // existing local stores can later be imported without losing that distinction.
+  type        FlashcardType       @default(GENERAL)
+  difficulty  FlashcardDifficulty @default(MEDIUM)
+  // Epoch-ms value on the frontend ("nextReview") — stored as a timestamp.
+  nextReview  DateTime?           @map("next_review")
+  reviewCount Int                 @default(0) @map("review_count")
+  // Stable client-generated id for idempotent guest→account migration.
+  clientId    String?             @map("client_id")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, clientId])
+  @@map("flashcards")
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  content   String
+  pinned    Boolean  @default(false)
+  // GENERAL notes map to the "morven-notes" store, MEDICAL to "morven-medical-notes".
+  type      NoteType @default(GENERAL)
+  // Medical note category (free string). Null for general notes.
+  category  String?
+  // Stable client-generated id for idempotent guest→account migration.
+  clientId  String?  @map("client_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, clientId])
+  @@map("notes")
+}
+
+model UserFile {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  name       String
+  mimeType   String   @map("mime_type")
+  size       Int
+  // Future object-storage key/path. Metadata only in Phase 1 — blobs are NOT
+  // stored on this table and are NOT placed under the public /uploads mount.
+  storageKey String   @map("storage_key")
+  toolUsed   String?  @map("tool_used")
+  // Stable client-generated id for idempotent guest→account migration.
+  clientId   String?  @map("client_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, clientId])
+  @@map("user_files")
+}
+
+model PomodoroStats {
+  id                String   @id @default(uuid())
+  userId            String   @unique @map("user_id")
+  completedSessions Int      @default(0) @map("completed_sessions")
+  totalFocusSeconds Int      @default(0) @map("total_focus_seconds")
+  lastFocusSeconds  Int      @default(0) @map("last_focus_seconds")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pomodoro_stats")
+}
+
+model AdhkarProgress {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  // Local calendar date string ("YYYY-MM-DD").
+  day       String
+  // Per-dhikr counter map (dhikr id -> count) for the day, matching the
+  // frontend Adhkar store shape { counts, day }. JSON is used because the set
+  // of dhikr keys is dynamic (categories + user-approved submissions).
+  counts    Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@map("adhkar_progress")
+}
+
+model UserPreference {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // UI theme: "light" | "dark" | "system".
+  theme       String   @default("dark")
+  recentTools String[] @default([]) @map("recent_tools")
+
+  // Pomodoro settings (mirrors the frontend PomodoroSettings shape).
+  pomodoroFocusMinutes           Int             @default(25) @map("pomodoro_focus_minutes")
+  pomodoroBreakMinutes           Int             @default(5) @map("pomodoro_break_minutes")
+  pomodoroLongBreakMinutes       Int             @default(15) @map("pomodoro_long_break_minutes")
+  pomodoroSessionsUntilLongBreak Int             @default(4) @map("pomodoro_sessions_until_long_break")
+  pomodoroTheme                  PomodoroTheme   @default(CLASSIC) @map("pomodoro_theme")
+  pomodoroTimerMode              PomodoroTimerMode @default(COUNTDOWN) @map("pomodoro_timer_mode")
+
+  // Adhkar reminder slot state (local calendar date-key per slot, nullable).
+  adhkarReminderShownMorning     String? @map("adhkar_reminder_shown_morning")
+  adhkarReminderDismissedMorning String? @map("adhkar_reminder_dismissed_morning")
+  adhkarReminderShownEvening     String? @map("adhkar_reminder_shown_evening")
+  adhkarReminderDismissedEvening String? @map("adhkar_reminder_dismissed_evening")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
 }

@@ -186,7 +186,7 @@ function TasksPanel() {
 
 /* ─── Files Panel ─── */
 function FilesPanel() {
-  const { files, upload, remove } = useFileStorage();
+  const { files, upload, remove, downloadFileData } = useFileStorage();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,8 +199,12 @@ function FilesPanel() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  const handleDownload = (f: typeof files[0]) => {
-    const blob = new Blob([f.data], { type: f.type || 'application/octet-stream' });
+  // Remote-only records (bytes on another device) are fetched from the server
+  // and cached locally before opening.
+  const handleDownload = async (f: typeof files[0]) => {
+    const data = await downloadFileData(f.id);
+    if (!data) return;
+    const blob = new Blob([data], { type: f.type || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

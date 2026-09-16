@@ -4,7 +4,7 @@ import { formatFileSize } from '@/utils/file';
 import { APP_DISPLAY_LOCALE } from '@/utils/displayLocale';
 
 export default function FileManagerPage() {
-  const { files, loading, error, upload, remove, clear } = useFileStorage();
+  const { files, loading, error, upload, remove, clear, downloadFileData } = useFileStorage();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -25,8 +25,11 @@ export default function FileManagerPage() {
 
   const handleDownload = async (id: string, name: string) => {
     const file = files.find((f) => f.id === id);
-    if (!file) return;
-    const blob = new Blob([file.data], { type: file.type || 'application/octet-stream' });
+    // Remote-only records have no local bytes yet — fetch them from the server
+    // and cache them in IndexedDB before triggering the download.
+    const data = await downloadFileData(id);
+    if (!data) return;
+    const blob = new Blob([data], { type: file?.type || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

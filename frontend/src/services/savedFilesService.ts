@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid';
 import type { PersistentFile } from '@/types';
-import { openDB, FILE_STORE } from './db';
+import { openDB, FILE_STORE, type StoredFile } from './db';
+import { getScopeKind, getScopeUserId } from '@/storage/scope';
+import { syncFileToServer } from '@/services/fileSync';
 
 /**
  * Save a Blob to the persistent file library (IndexedDB).
@@ -9,8 +11,8 @@ import { openDB, FILE_STORE } from './db';
  *
  * @param blob     The file content as a Blob
  * @param filename The display filename (e.g. "merged-pdfs.pdf")
- * @param mimeType MIME type (e.g. "application/pdf"). Falls back to blob.type.
  * @param toolUsed Which tool created this file (e.g. "pdf-tools")
+ * @param mimeType MIME type (e.g. "application/pdf"). Falls back to blob.type.
  */
 export async function saveToLibrary(
   blob: Blob,
@@ -19,7 +21,10 @@ export async function saveToLibrary(
   mimeType?: string,
 ): Promise<PersistentFile> {
   const arrayBuffer = await blob.arrayBuffer();
-  const file: PersistentFile = {
+  const scope = getScopeKind() === 'guest'
+    ? 'guest'
+    : `account:${getScopeUserId()}`;
+  const file: StoredFile = {
     id: uuid(),
     name: filename,
     type: mimeType || blob.type || 'application/octet-stream',
@@ -27,13 +32,19 @@ export async function saveToLibrary(
     data: arrayBuffer,
     createdAt: Date.now(),
     toolUsed,
+    scope,
   };
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(FILE_STORE, 'readwrite');
     const store = tx.objectStore(FILE_STORE);
     store.put(file);
-    tx.oncomplete = () => resolve(file);
+    tx.oncomplete = () => {
+      // Opportunistic server upload for authenticated users (best-effort:
+      // offline saves stay local and are swept up on next login/migration).
+      syncFileToServer(file).catch(() => {});
+      resolve(file as unknown as PersistentFile);
+    };
     tx.onerror = () => reject(tx.error);
   });
 }

@@ -18,6 +18,7 @@ import {
 } from '@/components/UI';
 import { useAppStore } from '@/store/useAppStore';
 import { useStatsStore } from '@/store/useStatsStore';
+import { scopedKey } from '@/storage/scope';
 import { Notebook } from 'lucide-react';
 import { ToolHero } from '@/pages/tools/ToolHero';
 import {
@@ -371,7 +372,7 @@ const NOTE_STORAGE_KEY = 'morven-medical-notes';
 
 function loadCustomFlashcards(): Flashcard[] {
   try {
-    const saved = localStorage.getItem(FLASHCARD_STORAGE_KEY);
+    const saved = localStorage.getItem(scopedKey('medical-flashcards'));
     return saved ? JSON.parse(saved) : [];
   } catch {
     return [];
@@ -380,13 +381,13 @@ function loadCustomFlashcards(): Flashcard[] {
 
 function saveCustomFlashcards(cards: Flashcard[]) {
   try {
-    localStorage.setItem(FLASHCARD_STORAGE_KEY, JSON.stringify(cards));
+    localStorage.setItem(scopedKey('medical-flashcards'), JSON.stringify(cards));
   } catch { /* noop */ }
 }
 
 function loadMedicalNotes(): MedicalNote[] {
   try {
-    const saved = localStorage.getItem(NOTE_STORAGE_KEY);
+    const saved = localStorage.getItem(scopedKey('medical-notes'));
     return saved ? JSON.parse(saved) : [];
   } catch {
     return [];
@@ -395,7 +396,7 @@ function loadMedicalNotes(): MedicalNote[] {
 
 function saveMedicalNotes(notes: MedicalNote[]) {
   try {
-    localStorage.setItem(NOTE_STORAGE_KEY, JSON.stringify(notes));
+    localStorage.setItem(scopedKey('medical-notes'), JSON.stringify(notes));
   } catch { /* noop */ }
 }
 

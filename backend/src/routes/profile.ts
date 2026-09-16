@@ -7,6 +7,8 @@ import {
   syncMyAchievements,
   getPublicAchievements,
   achievementValuesSchema,
+  incrementAchievementsSchema,
+  incrementMyAchievements,
 } from "../services/profile.service";
 import { authenticate } from "../middleware/auth";
 
@@ -75,6 +77,30 @@ router.put("/api/profile/me/achievements", authenticate, async (req: Request, re
     res.json({ ok: true });
   } catch (err) {
     console.error("Sync achievements error:", err);
+    res.status(500).json({ error: "حدث خطأ في الخادم" });
+  }
+});
+
+// POST /api/profile/me/achievements/increment — atomically add to achievement
+// counters. Unlike PUT, this is additive and safe for concurrent completions.
+router.post("/api/profile/me/achievements/increment", authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "غير مصرح" });
+      return;
+    }
+
+    const parsed = incrementAchievementsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0];
+      res.status(400).json({ error: firstError.message });
+      return;
+    }
+
+    const achievements = await incrementMyAchievements(req.user.sub, parsed.data);
+    res.json({ achievements });
+  } catch (err) {
+    console.error("Increment achievements error:", err);
     res.status(500).json({ error: "حدث خطأ في الخادم" });
   }
 });

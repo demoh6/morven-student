@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { usePomodoroStore, type PomodoroTheme, type TimerMode } from './usePomodoroStore';
+import { scopedKey } from '@/storage/scope';
 
-const STORAGE_KEY = 'morven-pomodoro';
+const STORAGE_KEY = scopedKey('pomodoro');
 
 beforeEach(() => {
   localStorage.clear();

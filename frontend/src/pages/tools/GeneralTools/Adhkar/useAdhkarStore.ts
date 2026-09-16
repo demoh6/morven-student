@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { DhikrCategory } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
 import { getAdhkarByCategory } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
+import { scopedStorage } from '@/storage/scopedStorage';
 
 export type AdhkarCounts = Record<string, number>;
 
@@ -63,6 +64,7 @@ export const useAdhkarStore = create<AdhkarStore>()(
     }),
     {
       name: 'morven-adhkar',
+      storage: createJSONStorage(() => scopedStorage),
       partialize: (s) => ({ counts: s.counts, day: s.day }),
       merge: (persisted, current) => {
         const saved = persisted as

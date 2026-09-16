@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ToolCategory, Notification, FileItem, Task, ExamCountdown, Flashcard } from '@/types';
 import { v4 as uuid } from 'uuid';
+import { readScoped, writeScoped } from '@/storage/scope';
 
 interface AppStore {
   // Sidebar
@@ -39,20 +40,9 @@ interface AppStore {
   deleteFlashcard: (id: string) => void;
 }
 
-const loadState = <T>(key: string, fallback: T): T => {
-  try {
-    const saved = localStorage.getItem(`morven-${key}`);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch {
-    return fallback;
-  }
-};
+const loadState = <T>(key: string, fallback: T): T => readScoped(key, fallback);
 
-const saveState = (key: string, value: unknown) => {
-  try {
-    localStorage.setItem(`morven-${key}`, JSON.stringify(value));
-  } catch {}
-};
+const saveState = (key: string, value: unknown) => writeScoped(key, value);
 
 export const useAppStore = create<AppStore>((set, get) => ({
   sidebarOpen: true,

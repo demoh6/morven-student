@@ -44,6 +44,7 @@ async function removeTempFiles(paths: (string | undefined)[]): Promise<void> {
  */
 async function startAudioJob(
   res: Response,
+  userId: string | undefined,
   options: {
     label: string;
     /** Uploaded temp files belonging to this request (cleaned on failure). */
@@ -77,7 +78,7 @@ async function startAudioJob(
       );
     }
 
-    const job = MediaJobsService.createJob(paths, options.downloadName());
+    const job = MediaJobsService.createJob(paths, options.downloadName(), userId);
     console.log(`[audio] job ${job.id} started (${options.label})`);
     MediaJobsService.start(job, "", (ctx) => options.run(ctx));
     res.status(202).json({ jobId: job.id });
@@ -157,7 +158,7 @@ export class AudioController {
     }
 
     const format = formatFromName(uploaded.originalname) ?? "mp3";
-    await startAudioJob(res, {
+    await startAudioJob(res, req.user?.sub, {
       label: "audio/cut",
       uploads: [uploaded],
       downloadName: () =>
@@ -235,7 +236,7 @@ export class AudioController {
     }
 
     const format = formatFromName(uploaded.originalname) ?? "mp3";
-    await startAudioJob(res, {
+    await startAudioJob(res, req.user?.sub, {
       label: "audio/enhance",
       uploads: [uploaded],
       downloadName: () =>
@@ -279,7 +280,7 @@ export class AudioController {
     }
 
     const format = formatFromName(uploaded.originalname) ?? "mp3";
-    await startAudioJob(res, {
+    await startAudioJob(res, req.user?.sub, {
       label: "audio/clean",
       uploads: [uploaded],
       downloadName: () =>
@@ -312,7 +313,7 @@ export class AudioController {
       return;
     }
 
-    await startAudioJob(res, {
+    await startAudioJob(res, req.user?.sub, {
       label: "audio/merge",
       uploads,
       downloadName: () => "merged.mp3",
@@ -358,7 +359,7 @@ export class AudioController {
       return;
     }
 
-    await startAudioJob(res, {
+    await startAudioJob(res, req.user?.sub, {
       label: "audio/transcribe",
       uploads: [uploaded],
       downloadName: () =>

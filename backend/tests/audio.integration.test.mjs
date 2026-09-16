@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startBackend } from "./helpers/server.mjs";
+import { registerAndLogin } from "./helpers/auth.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -137,7 +138,7 @@ function multipartPost(baseUrl, endpoint, files, fields) {
     form.append(f.field, new Blob([f.bytes]), f.name);
   }
   for (const [k, v] of Object.entries(fields ?? {})) form.append(k, String(v));
-  return fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+  return apiFetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
 }
 
 /** Drain an unused response body to release its socket. */
@@ -145,6 +146,18 @@ async function drain(res) {
   try {
     await res.arrayBuffer();
   } catch {}
+}
+
+let token = null;
+
+function apiFetch(url, init) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
 }
 
 /**
@@ -156,7 +169,7 @@ async function fetchStatus(url) {
   let lastErr;
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      return await fetch(url);
+      return await apiFetch(url);
     } catch (err) {
       lastErr = err;
       await new Promise((r) => setTimeout(r, 400));
@@ -196,7 +209,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
   }
 
   async function downloadTo(jobId, outPath) {
-    const dl = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const dl = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(dl.status, 200, `download failed with ${dl.status}`);
     const buf = Buffer.from(await dl.arrayBuffer());
     if (outPath) await writeFile(outPath, buf);
@@ -206,6 +219,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
   before(async () => {
     fx = await ensureAudioFixtures();
     server = await startBackend({});
+    token = await registerAndLogin(server.baseUrl, "audiouser");
   });
 
   after(async () => {
@@ -375,7 +389,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
     );
     assert.equal(status?.status, "done", JSON.stringify(note(status)));
 
-    const dl = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const dl = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(dl.status, 200);
     assert.match(dl.headers.get("content-disposition") || "", /-transcript\.txt/);
     const text = (await dl.text()).trim().toLowerCase();
@@ -438,7 +452,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
       ["GET", `/api/media/jobs/${bogus}/download`],
       ["DELETE", `/api/media/jobs/${bogus}`],
     ]) {
-      const res = await fetch(`${server.baseUrl}${url}`, { method });
+      const res = await apiFetch(`${server.baseUrl}${url}`, { method });
       assert.equal(res.status, 404, `${method} ${url}`);
       assert.equal((await res.json()).code, "JOB_NOT_FOUND");
     }
@@ -453,10 +467,10 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
     );
     assert.equal(status?.status, "done");
 
-    const first = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const first = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(first.status, 200);
     await drain(first);
-    const second = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const second = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(second.status, 404);
     await drain(second);
   });
@@ -473,11 +487,11 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
     assert.equal(started.status, 202);
     const { jobId } = await started.json();
 
-    const del = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}`, { method: "DELETE" });
+    const del = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}`, { method: "DELETE" });
     assert.equal(del.status, 200);
     assert.equal((await del.json()).status, "cancelled");
 
-    const gone = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
+    const gone = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
     assert.equal(gone.status, 404);
   });
 
@@ -490,7 +504,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
     );
     assert.equal(status?.status, "done", JSON.stringify(note(status)));
 
-    const dl = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const dl = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(dl.status, 200);
     const disposition = decodeURIComponent(dl.headers.get("content-disposition") || "");
     assert.match(disposition, /-cut\.mp3/);
@@ -500,6 +514,11 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
 
   it("enforces MAX_AUDIO_SIZE_MB with a 413 FILE_TOO_LARGE response", async () => {
     const small = await startBackend({ MAX_AUDIO_SIZE_MB: "1" });
+    // Sub-server has its own DB registry; register a fresh user so the auth
+    // middleware on small.baseUrl does not reject the request with 401 before
+    // the size-limit check can fire.
+    const prevToken = token;
+    token = await registerAndLogin(small.baseUrl, "sizeuser");
     try {
       const res = await multipartPost(
         small.baseUrl,
@@ -512,6 +531,7 @@ describe("audio tools API (real FFmpeg + Whisper integration)", { skip: skipReas
       assert.equal(body.code, "FILE_TOO_LARGE");
       assert.match(body.error, /1MB/);
     } finally {
+      token = prevToken;
       await small.stop();
     }
   });

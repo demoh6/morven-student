@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { startBackend } from "./helpers/server.mjs";
+import { registerAndLogin } from "./helpers/auth.mjs";
 
 /**
  * Real end-to-end coverage for the image tools API. Everything runs against
@@ -14,6 +15,21 @@ import { startBackend } from "./helpers/server.mjs";
  */
 
 const FIXTURES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), ".fixtures");
+
+// Media endpoints require authentication; every request carries the bearer
+// token obtained at server start.
+let token = null;
+
+/** fetch wrapper that always injects the auth header. */
+function apiFetch(url, init) {
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
 
 async function ensureImageFixtures() {
   await mkdir(FIXTURES_DIR, { recursive: true });
@@ -92,7 +108,7 @@ async function uploadAndAwait(baseUrl, endpoint, filePath, fields = {}, fileName
   form.append("file", new Blob([bytes]), fileName || path.basename(filePath));
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
 
-  const started = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+  const started = await apiFetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
   if (!started.ok) {
     // Consume the body so the undici socket can be released (otherwise the
     // test runner's event loop never drains and the process hangs).
@@ -105,7 +121,7 @@ async function uploadAndAwait(baseUrl, endpoint, filePath, fields = {}, fileName
   const deadline = Date.now() + timeoutMs;
   let status = null;
   while (Date.now() < deadline) {
-    const res = await fetch(`${baseUrl}/api/media/jobs/${jobId}/status`);
+    const res = await apiFetch(`${baseUrl}/api/media/jobs/${jobId}/status`);
     status = await res.json();
     if (status.status === "done" || status.status === "error") break;
     await new Promise((r) => setTimeout(r, 300));
@@ -121,7 +137,7 @@ async function drain(res) {
 }
 
 async function downloadResult(baseUrl, jobId) {
-  const dl = await fetch(`${baseUrl}/api/media/jobs/${jobId}/download`);
+  const dl = await apiFetch(`${baseUrl}/api/media/jobs/${jobId}/download`);
   assert.equal(dl.status, 200, `download failed with ${dl.status}`);
   return Buffer.from(await dl.arrayBuffer());
 }
@@ -137,7 +153,7 @@ async function buildAndPost(baseUrl, endpoint, files, fields) {
     form.append(f.field, new Blob([bytes]), path.basename(f.path));
   }
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
-  return fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+  return apiFetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
 }
 
 describe("image tools API (real sharp integration)", () => {
@@ -148,6 +164,7 @@ describe("image tools API (real sharp integration)", () => {
     try {
       fixtures = await ensureImageFixtures();
       server = await startBackend({});
+      token = await registerAndLogin(server.baseUrl, "imguser");
       const { appendFileSync } = await import("node:fs");
       appendFileSync("test-debug.log", `before ok: ${server.baseUrl}\n`);
     } catch (err) {
@@ -360,7 +377,7 @@ describe("image tools API (real sharp integration)", () => {
     assert.equal(status?.status, "done", JSON.stringify(status));
 
     // Arabic filenames survive the round trip in the download name.
-    const head = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const head = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     const disposition = head.headers.get("content-disposition") || "";
     assert.match(disposition, /\.jpg/i);
     const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i);
@@ -395,7 +412,7 @@ describe("image tools API (real sharp integration)", () => {
     form.append("position", "bottom-right");
     form.append("rotation", "0");
 
-    const started = await fetch(`${server.baseUrl}/api/media/image/watermark`, {
+    const started = await apiFetch(`${server.baseUrl}/api/media/image/watermark`, {
       method: "POST",
       body: form,
     });
@@ -405,7 +422,7 @@ describe("image tools API (real sharp integration)", () => {
 
     let status = null;
     for (let i = 0; i < 200; i++) {
-      const res = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
+      const res = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/status`);
       status = await res.json();
       if (status.status !== "processing") break;
       await new Promise((r) => setTimeout(r, 300));
@@ -496,7 +513,7 @@ describe("image tools API (real sharp integration)", () => {
 
   it("enforces job lifecycle rules on shared endpoints", async () => {
     // Unknown job id.
-    const missing = await fetch(`${server.baseUrl}/api/media/jobs/does-not-exist/status`);
+    const missing = await apiFetch(`${server.baseUrl}/api/media/jobs/does-not-exist/status`);
     assert.equal(missing.status, 404);
     const body = await missing.json();
     assert.equal(body.code, "JOB_NOT_FOUND");
@@ -508,10 +525,10 @@ describe("image tools API (real sharp integration)", () => {
       fixtures.photoPath,
       { width: "64" }
     );
-    const first = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const first = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(first.status, 200);
     await drain(first);
-    const second = await fetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
+    const second = await apiFetch(`${server.baseUrl}/api/media/jobs/${jobId}/download`);
     assert.equal(second.status, 404);
     await drain(second);
   });

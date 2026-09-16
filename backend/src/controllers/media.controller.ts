@@ -69,6 +69,7 @@ function evenize(value: number): number {
 async function launchMediaJob(
   res: Response,
   options: {
+    userId?: string;
     label: string;
     /** Every uploaded temp file belonging to this request. */
     filePaths: string[];
@@ -91,7 +92,7 @@ async function launchMediaJob(
       );
     }
 
-    const job = MediaJobsService.createJob(options.filePaths, options.downloadName());
+    const job = MediaJobsService.createJob(options.filePaths, options.downloadName(), options.userId);
     console.log(`[media] job ${job.id} started (${options.label})`);
 
     MediaJobsService.start(job, "", ctx => options.run(ctx));
@@ -117,6 +118,7 @@ async function startSingleFileJob(
   req: Request,
   res: Response,
   options: {
+    userId?: string;
     label: string;
     run: (
       inputPath: string,
@@ -147,7 +149,7 @@ async function startSingleFileJob(
       );
     }
 
-    const job = MediaJobsService.createJob(uploaded.path, options.downloadName());
+    const job = MediaJobsService.createJob(uploaded.path, options.downloadName(), options.userId);
     console.log(`[media] job ${job.id} started (${options.label}, ${uploaded.size} bytes)`);
 
     MediaJobsService.start(job, "", ctx => options.run(uploaded.path, ctx));
@@ -180,6 +182,7 @@ export class MediaController {
     const quality: AudioQuality = isAudioQuality(qualityRaw) ? qualityRaw : "high";
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "extract-audio",
       run: (inputPath, ctx) => MediaService.extractAudio(inputPath, format, quality, ctx),
       downloadName: () =>
@@ -196,6 +199,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "compress-video",
       run: (inputPath, ctx) => MediaService.compressVideo(inputPath, preset, ctx),
       downloadName: () =>
@@ -217,6 +221,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "convert-video",
       run: (inputPath, ctx) => MediaService.convertVideo(inputPath, target, ctx),
       downloadName: () =>
@@ -242,6 +247,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "cut-video",
       run: (inputPath, ctx) => MediaService.cutVideo(inputPath, start, end, ctx),
       downloadName: () =>
@@ -307,6 +313,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "edit-video",
       run: (inputPath, ctx) =>
         MediaService.editVideo(
@@ -404,7 +411,8 @@ export class MediaController {
               : mode === "mix"
                 ? "audio-mixed"
                 : "volume"
-        }.mp4`
+        }.mp4`,
+        req.user?.sub
       );
       console.log(`[media] job ${job.id} started (edit-video-audio/${mode})`);
       MediaJobsService.start(job, "", (ctx) =>
@@ -490,7 +498,7 @@ export class MediaController {
         );
       }
       const paths = uploads.map((u) => u.path);
-      const job = MediaJobsService.createJob(paths, "merged.mp4");
+      const job = MediaJobsService.createJob(paths, "merged.mp4", req.user?.sub);
       console.log(`[media] job ${job.id} started (merge-videos, ${paths.length} clips)`);
       MediaJobsService.start(job, "", (ctx) =>
         MediaService.mergeVideos(
@@ -570,6 +578,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "video-to-gif",
       run: (inputPath, ctx) =>
         MediaService.videoToGif(inputPath, { fps, width, window: { start, end } }, ctx),
@@ -591,6 +600,7 @@ export class MediaController {
     }
 
     await startSingleFileJob(req, res, {
+      userId: req.user?.sub,
       label: "change-speed",
       run: (inputPath, ctx) => MediaService.changeVideoSpeed(inputPath, speed, ctx),
       downloadName: () =>
@@ -626,7 +636,7 @@ export class MediaController {
 
       const baseName = sanitizeBaseName(uploaded.originalname || "video");
       const downloadName = `${baseName}-no-music.mp4`;
-      const job = MediaJobsService.createJob(uploaded.path, downloadName);
+      const job = MediaJobsService.createJob(uploaded.path, downloadName, req.user?.sub);
       job.audioFileName = `${baseName}-no-music.mp3`;
       console.log(`[media] job ${job.id} started (remove-music, ${uploaded.size} bytes)`);
 
@@ -659,7 +669,7 @@ export class MediaController {
   /** GET /api/media/jobs/:id/status */
   static status(req: Request, res: Response): void {
     const job = MediaJobsService.get(String(req.params.id));
-    if (!job) {
+    if (!MediaJobsService.canAccess(job, req.user?.sub ?? "")) {
       res.status(404).json({
         code: "JOB_NOT_FOUND",
         error: "Unknown or expired processing job.",
@@ -698,7 +708,7 @@ export class MediaController {
    */
   static async download(req: Request, res: Response): Promise<void> {
     const job = MediaJobsService.get(String(req.params.id));
-    if (!job) {
+    if (!MediaJobsService.canAccess(job, req.user?.sub ?? "")) {
       res.status(404).json({
         code: "JOB_NOT_FOUND",
         error: "Unknown or expired processing job.",
@@ -735,6 +745,14 @@ export class MediaController {
 
   /** DELETE /api/media/jobs/:id — cancel processing and clean up. */
   static async cancel(req: Request, res: Response): Promise<void> {
+    const job = MediaJobsService.get(String(req.params.id));
+    if (!MediaJobsService.canAccess(job, req.user?.sub ?? "")) {
+      res.status(404).json({
+        code: "JOB_NOT_FOUND",
+        error: "Unknown or expired processing job.",
+      });
+      return;
+    }
     const cancelled = await MediaJobsService.cancel(String(req.params.id));
     if (!cancelled) {
       res.status(404).json({
@@ -753,7 +771,7 @@ export class MediaController {
    */
   static async downloadAudio(req: Request, res: Response): Promise<void> {
     const job = MediaJobsService.get(String(req.params.id));
-    if (!job) {
+    if (!MediaJobsService.canAccess(job, req.user?.sub ?? "")) {
       res.status(404).json({
         code: "JOB_NOT_FOUND",
         error: "Unknown or expired processing job.",
