@@ -35,7 +35,6 @@ export type AdhkarPeriod = 'morning' | 'evening';
 export type Dhikr = {
   id: string;
   category: DhikrCategory;
-  title?: string;
   text: string;
   repeatCount: number;
   source: string;
@@ -90,14 +89,6 @@ export const CATEGORY_META: Record<DhikrCategory, CategoryMeta> = {
   },
 };
 
-export const GROUP_META: Record<DhikrGroup, { title: string; icon: LucideIcon }> = {
-  quran: { title: 'آيات من القرآن الكريم', icon: Sparkles },
-  morning: { title: 'أدعية الصباح المأثورة', icon: Sunrise },
-  evening: { title: 'أدعية المساء المأثورة', icon: Bookmark },
-  tasbih: { title: 'تسبيح وذكر', icon: ListChecks },
-  protection: { title: 'أذكار الحماية والتحصين', icon: ShieldCheck },
-  closing: { title: 'أذكار ختامية', icon: Sparkles },
-};
 
 // =============================================================================
 // The adhkar content — bundled locally, works fully offline.
@@ -111,7 +102,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-ayatul-kursi',
     category: 'morning-evening',
     group: 'quran',
-    title: 'آية الكرسي',
     text: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ ﴿اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَنْ ذَا الَّذِي يَشْفَعُ عِنْدَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ﴾',
     repeatCount: 1,
     source: 'القرآن الكريم — سورة البقرة (٢٥٥)',
@@ -123,7 +113,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-muawwidhat',
     category: 'morning-evening',
     group: 'quran',
-    title: 'سورة الإخلاص والمعوذتان',
     text: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n﴿قُلْ هُوَ اللَّهُ أَحَدٌ * اللَّهُ الصَّمَدُ * لَمْ يَلِدْ وَلَمْ يُولَدْ * وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ﴾\n﴿قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ * مِنْ شَرِّ مَا خَلَقَ * وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ * وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ * وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ﴾\n﴿قُلْ أَعُوذُ بِرَبِّ النَّاسِ * مَلِكِ النَّاسِ * إِلَٰهِ النَّاسِ * مِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ * الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ * مِنَ الْجِنَّةِ وَالنَّاسِ﴾',
     repeatCount: 3,
     source: 'القرآن الكريم — سور الإخلاص والفلق والناس (١١٢-١١٤)',
@@ -137,7 +126,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-asbahna',
     category: 'morning-evening',
     group: 'morning',
-    title: 'دعاء الصباح الجامع',
     text: 'أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ. رَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذَا الْيَوْمِ وَخَيْرَ مَا بَعْدَهُ، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذَا الْيَوْمِ وَشَرِّ مَا بَعْدَهُ، رَبِّ أَعُوذُ بِكَ مِنَ الْكَسَلِ وَسُوءِ الْكِبَرِ، رَبِّ أَعُوذُ بِكَ مِنْ عَذَابٍ فِي النَّارِ وَعَذَابٍ فِي الْقَبْرِ.',
     repeatCount: 1,
     source: 'رواه مسلم (٢٧٢٣)',
@@ -147,7 +135,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-lahumma-bika-asbahna',
     category: 'morning-evening',
     group: 'morning',
-    title: 'التوكل على الله في الصباح',
     text: 'اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ النُّشُورُ.',
     repeatCount: 1,
     source: 'رواه الترمذي (٣٣٩١)، وحسّنه الألباني',
@@ -156,7 +143,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-ushhiduka-asbahna',
     category: 'morning-evening',
     group: 'morning',
-    title: 'الإشهاد على التوحيد (صباحاً)',
     text: 'اللَّهُمَّ إِنِّي أَصْبَحْتُ أُشْهِدُكَ، وَأُشْهِدُ حَمَلَةَ عَرْشِكَ، وَمَلَائِكَتَكَ، وَجَمِيعَ خَلْقِكَ: أَنَّكَ أَنْتَ اللَّهُ لَا إِلَٰهَ إِلَّا أَنْتَ، وَأَنَّ مُحَمَّدًا عَبْدُكَ وَرَسُولُكَ.',
     repeatCount: 4,
     source: 'رواه أبو داود (٥٠٦٩) والترمذي، وصححه الألباني',
@@ -167,7 +153,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-asbahna-ala-fitrat',
     category: 'morning-evening',
     group: 'morning',
-    title: 'التنبؤ على الفطرة',
     text: 'أَصْبَحْنَا عَلَى فِطْرَةِ الْإِسْلَامِ، وَعَلَى كَلِمَةِ الْإِخْلَاصِ، وَعَلَى دِينِ نَبِيِّنَا مُحَمَّدٍ ﷺ، وَعَلَى مِلَّةِ أَبِينَا إِبْرَاهِيمَ، حَنِيفًا مُسْلِمًا وَمَا أَنَا مِنَ الْمُشْرِكِينَ.',
     repeatCount: 1,
     source: 'رواه أحمد، وحسّنه الألباني',
@@ -177,7 +162,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-ma-asbaha-bi-min-nima',
     category: 'morning-evening',
     group: 'morning',
-    title: 'شكر نعم الله في الصباح',
     text: 'اللَّهُمَّ مَا أَصْبَحَ بِي مِنْ نِعْمَةٍ أَوْ بِأَحَدٍ مِنْ خَلْقِكَ فَمِنْكَ وَحْدَكَ لَا شَرِيكَ لَكَ، فَلَكَ الْحَمْدُ وَلَكَ الشُّكْرُ.',
     repeatCount: 1,
     source: 'رواه أبو داود (٥٠٧٣) والنسائي، وحسّنه الألباني',
@@ -308,7 +292,6 @@ export const ADHKARS: Dhikr[] = [
     id: 'me-sayyid-istighfar',
     category: 'morning-evening',
     group: 'closing',
-    title: 'سيد الاستغفار',
     text: 'اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَٰهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي، فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ.',
     repeatCount: 1,
     source: 'رواه البخاري (٦٣٠٦)',
@@ -364,7 +347,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'as-kufarat-majlis',
     category: 'after-study',
-    title: 'كفارة المجلس',
     text: 'سُبْحَانَكَ اللَّهُمَّ وَبِحَمْدِكَ، أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا أَنْتَ، أَسْتَغْفِرُكَ وَأَتُوبُ إِلَيْكَ.',
     repeatCount: 1,
     source: 'رواه الترمذي والنسائي، وحسّنه الألباني',
@@ -375,7 +357,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'as-hamdulillah',
     category: 'after-study',
-    title: 'حمد الله على إتمام العمل',
     text: 'الْحَمْدُ لِلَّهِ الَّذِي بِنِعْمَتِهِ تَتِمُّ الصَّالِحَاتُ.',
     repeatCount: 1,
     source: 'رواه ابن ماجه، وحسّنه الألباني',
@@ -384,7 +365,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'as-ashudu-bi-ilmin-la-yanfa',
     category: 'after-study',
-    title: 'الاستعاذة من العلم غير النافع',
     text: 'اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنْ عِلْمٍ لَا يَنْفَعُ، وَمِنْ قَلْبٍ لَا يَخْشَعُ، وَمِنْ نَفْسٍ لَا تَشْبَعُ، وَمِنْ دَعْوَةٍ لَا يُسْتَجَابُ لَهَا.',
     repeatCount: 1,
     source: 'رواه مسلم (٢٧٢٢)',
@@ -393,7 +373,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'as-rabanna-atina',
     category: 'after-study',
-    title: 'الدعاء الجامع',
     text: '﴿رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ﴾',
     repeatCount: 1,
     source: 'القرآن الكريم — سورة البقرة (٢٠١)',
@@ -404,7 +383,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'be-la-sahla',
     category: 'before-exam',
-    title: 'دعاء التيسير',
     text: 'اللَّهُمَّ لَا سَهْلَ إِلَّا مَا جَعَلْتَهُ سَهْلًا، وَأَنْتَ تَجْعَلُ الْحَزْنَ إِذَا شِئْتَ سَهْلًا.',
     repeatCount: 1,
     source: 'رواه ابن حبان، وصححه الألباني',
@@ -413,7 +391,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'be-ashudu-min-hamm',
     category: 'before-exam',
-    title: 'الاستعاذة من الهم والحزن',
     text: 'اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْهَمِّ وَالْحَزَنِ، وَالْعَجْزِ وَالْكَسَلِ، وَالْجُبْنِ وَالْبُخْلِ، وَضَلَعِ الدَّيْنِ، وَغَلَبَةِ الرِّجَالِ.',
     repeatCount: 1,
     source: 'رواه البخاري (٦٣٦٩)',
@@ -422,7 +399,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'be-raini-ala-zikrika',
     category: 'before-exam',
-    title: 'سؤال المعونة على الذكر والشكر',
     text: 'اللَّهُمَّ أَعِنِّي عَلَى ذِكْرِكَ، وَشُكْرِكَ، وَحُسْنِ عِبَادَتِكَ.',
     repeatCount: 1,
     source: 'رواه أبو داود والنسائي، وصححه الألباني',
@@ -430,7 +406,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'be-hasbuna',
     category: 'before-exam',
-    title: 'حسبنا الله ونعم الوكيل',
     text: '﴿حَسْبُنَا اللَّهُ وَنِعْمَ الْوَكِيلُ﴾',
     repeatCount: 1,
     source: 'القرآن الكريم — سورة آل عمران (١٧٣)',
@@ -439,7 +414,6 @@ export const ADHKARS: Dhikr[] = [
   {
     id: 'be-rabbi-shrah',
     category: 'before-exam',
-    title: 'دعاء موسى عليه السلام',
     text: '﴿رَبِّ اشْرَحْ لِي صَدْرِي * وَيَسِّرْ لِي أَمْرِي * وَاحْلُلْ عُقْدَةً مِنْ لِسَانِي * يَفْقَهُوا قَوْلِي﴾',
     repeatCount: 1,
     source: 'القرآن الكريم — سورة طه (٢٥-٢٨)',
@@ -486,11 +460,6 @@ export function filterAdhkarByPeriod(
   return dhikrs.filter((d) => d.group !== hidden);
 }
 
-/**
- * Copy for the inner Azkar tool hero. Title and subtitle follow the active day
- * period via `getAdhkarPeriod`, and the subtitle refers only to the current
- * half of the day — it never mentions the other time word.
- */
 export function getAdhkarHeroText(period: AdhkarPeriod): {
   title: string;
   description: string;
@@ -517,7 +486,6 @@ export function searchAdhkar(query: string, dhikrs: Dhikr[]): Dhikr[] {
   if (!q) return dhikrs;
   return dhikrs.filter(
     (d) =>
-      (d.title ?? '').includes(q) ||
       d.text.includes(q) ||
       d.source.includes(q) ||
       (d.reference ?? '').includes(q) ||

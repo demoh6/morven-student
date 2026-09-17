@@ -74,7 +74,7 @@ function AddDhikrModal({
 
   const validate = (): boolean => {
     const next: FieldErrors = {};
-    if (!title.trim()) next.title = 'يرجى إدخال عنوان الذكر';
+    
     if (!text.trim()) next.text = 'يرجى إدخال محتوى الذكر';
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -154,16 +154,7 @@ function AddDhikrModal({
       showClose={!submitting}
     >
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <Input
-          label="عنوان الذكر"
-          required
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="مثال: دعاء الاستفتاح في الصلاة"
-          error={errors.title}
-          disabled={submitting}
-          aria-label="عنوان الذكر"
-        />
+       
 
         <TextArea
           label="محتوى الذكر"

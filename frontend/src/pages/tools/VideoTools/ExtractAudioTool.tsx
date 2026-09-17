@@ -64,7 +64,7 @@ export function ExtractAudioFromVideo() {
       {!file && (
         <MediaUploadZone
           label="ارفع ملف فيديو"
-          description={`يدعم MP4 وMOV وWebM وMKV وغيرها — حتى ${MAX_VIDEO_SIZE_MB} ميغابايت.`}
+          description={`يدعم MP4  حتى ${MAX_VIDEO_SIZE_MB} ميغابايت`}
           onFilesSelected={handleFile}
         />
       )}
@@ -96,10 +96,7 @@ export function ExtractAudioFromVideo() {
           استخراج الصوت
         </Button>
       )}
-      <ToolTips items={[
-        'صيغة MP3 تعمل على جميع الأجهزة تقريبًا، وصيغة M4A تمنحك جودة عالية بحجم أصغر.',
-        'صيغة WAV تحافظ على الصوت الأصلي دون أي فقدان لكن بحجم أكبر بكثير.',
-      ]} />
+     
     </ToolBody>
   );
 }

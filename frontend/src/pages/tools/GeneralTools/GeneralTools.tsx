@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2 } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Plus } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -1466,11 +1466,7 @@ function ExamCountdownPage() {
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">{'الامتحانات القادمة'}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">{examCountLabel}</p>
         </div>
-        <Button onClick={() => setShowAddModal(true)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+        <Button onClick={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
           {'إضافة امتحان'}
         </Button>
       </motion.div>

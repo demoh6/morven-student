@@ -2001,7 +2001,7 @@ function DiseaseExplain() {
                   <Info className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                 </span>
                 <p className="pt-1 text-sm leading-6 text-amber-800/90 dark:text-amber-200">
-                  {"هذه الأداة مخصصة للأغراض التعليمية فقط، وقد تتغير المعلومات الطبية مع مرور الوقت."}
+                  {"هذه الأداة مخصصة للأغراض التعليمية فقط، وقد لا تكون دقيقة 100% ."}
                 </p>
               </div>
             </motion.div>

@@ -109,7 +109,6 @@ describe('Adhkar add-dhikr submissions', () => {
 
     await user.click(screen.getByRole('button', { name: 'إضافة ذكر' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByLabelText('عنوان الذكر')).toBeInTheDocument();
     expect(screen.getByLabelText('محتوى الذكر')).toBeInTheDocument();
     expect(screen.getByLabelText('المصدر')).toBeInTheDocument();
   });
@@ -126,7 +125,6 @@ describe('Adhkar add-dhikr submissions', () => {
 
     await user.click(screen.getByRole('button', { name: 'إرسال للمراجعة' }));
 
-    expect(screen.getByText('يرجى إدخال عنوان الذكر')).toBeInTheDocument();
     expect(screen.getByText('يرجى إدخال محتوى الذكر')).toBeInTheDocument();
     expect(mockedSubmit).not.toHaveBeenCalled();
     // The modal stays open.
@@ -155,7 +153,6 @@ describe('Adhkar add-dhikr submissions', () => {
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
     await user.click(screen.getByRole('button', { name: 'إضافة ذكر' }));
 
-    await user.type(screen.getByLabelText('عنوان الذكر'), 'دعاء مقترح');
     await user.type(screen.getByLabelText('محتوى الذكر'), 'نص مقترح');
     await user.type(screen.getByLabelText('المصدر'), 'مصدر مقترح');
     await user.click(screen.getByRole('button', { name: 'إرسال للمراجعة' }));
@@ -186,7 +183,6 @@ describe('Adhkar add-dhikr submissions', () => {
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
     await user.click(screen.getByRole('button', { name: 'إضافة ذكر' }));
 
-    await user.type(screen.getByLabelText('عنوان الذكر'), 'ذكر');
     await user.type(screen.getByLabelText('محتوى الذكر'), 'نص');
     await user.click(screen.getByRole('button', { name: 'إرسال للمراجعة' }));
 
@@ -209,7 +205,6 @@ describe('Adhkar add-dhikr submissions', () => {
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
     await user.click(screen.getByRole('button', { name: 'إضافة ذكر' }));
 
-    await user.type(screen.getByLabelText('عنوان الذكر'), 'ذكر');
     await user.type(screen.getByLabelText('محتوى الذكر'), 'نص');
     await user.click(screen.getByRole('button', { name: 'إرسال للمراجعة' }));
 

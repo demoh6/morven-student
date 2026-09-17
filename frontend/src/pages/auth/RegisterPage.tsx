@@ -5,6 +5,7 @@ import { Button } from '@/components/UI/Button';
 import { Input } from '@/components/UI/Input';
 import { Card } from '@/components/UI/Card';
 import { GoogleSignInButton } from '@/pages/auth/GoogleSignInButton';
+import { ChevronLeft } from 'lucide-react';
 
 export default function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
@@ -37,8 +38,16 @@ export default function RegisterPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-dark-bg px-4">
-      <Card className="w-full max-w-md" padding="lg">
+    <div className="min-h-screen flex flex-col justify-center bg-gray-50 dark:bg-dark-bg px-4 py-8 sm:py-12">
+      <div className="w-full max-w-md mx-auto">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-sm text-primary-500 hover:text-primary-600 dark:text-primary-400 group mb-4"
+        >
+          <ChevronLeft className="w-4 h-4 transition-transform group-hover:ps-1" />
+          <span className="font-medium">العودة إلى الرئيسية</span>
+        </Link>
+        <Card className="w-full" padding="lg">
         <div className="text-center mb-8">
           <img src="/morven.png" alt="مورفن" className="w-12 h-12 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -151,6 +160,7 @@ export default function RegisterPage() {
           </p>
         </div>
       </Card>
+      </div>
     </div>
   );
 }

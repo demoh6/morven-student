@@ -30,11 +30,7 @@ export class AdhkarError extends Error {
 // Shared validation for dhikr content (title/text/source) — used both when a
 // user submits a proposal and when an admin edits a visible dhikr.
 export const dhikrContentSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, { message: "يرجى إدخال عنوان الذكر" })
-    .max(200, { message: "عنوان الذكر طويل جداً" }),
+
   text: z
     .string()
     .trim()

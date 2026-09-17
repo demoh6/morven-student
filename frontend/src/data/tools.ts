@@ -59,7 +59,7 @@ export const tools: Tool[] = [
   { id: 'disease-explain', name: 'شرح الأمراض', description: 'الحصول على شروحات بسيطة للأمراض والحالات', icon: Stethoscope, category: 'medical' },
   { id: 'drug-summary', name: 'مرجع الأدوية', description: 'وصول سريع لمعلومات الأدوية والتفاعلات', icon: Pill, category: 'medical' },
   { id: 'lab-values', name: 'قيم المختبر', description: 'مرجع للقيم المختبرية الطبيعية ونطاقاتها', icon: FlaskConical, category: 'medical' },
-  { id: 'medical-notes', name: 'ملاحظات طبية', description: 'تدوين الملاحظات السريرية بالقوالب', icon: ClipboardPlus, category: 'medical' },
+  { id: 'medical-notes', name: 'ملاحظات طبية', description: 'تدوين الملاحظات السريرية بالقوالب', icon: ClipboardPlus, comingSoon: true, category: 'medical' },
   { id: 'medical-flashcards', name: 'بطاقات طبية', description: 'بطاقات دراسية طبية جاهزة', icon: BookOpenCheck, comingSoon: true, category: 'medical' },
   { id: 'medical-mcq', name: 'أسئلة طبية اختيار من متعدد', description: 'إنشاء أسئلة اختيار من متعدد طبية', icon: HelpCircle, comingSoon: true, category: 'medical' },
 
@@ -137,31 +137,29 @@ export const tools: Tool[] = [
   { id: 'compress-ppt', name: 'ضغط PowerPoint', description: 'تقليل حجم عرض PowerPoint', icon: Archive, category: 'powerpoint' },
   
   // VIDEO
-  { id: 'cut-video', name: 'قص الفيديو', description: 'اقتطاع المقطع المطلوب من الفيديو.', icon: Scissors, category: 'video' },
   { id: 'edit-video', name: 'تحرير الفيديو', description: 'تغيير حجم الفيديو وتدويره أو قلبه في أداة واحدة.', icon: PenTool, category: 'video' },
-  { id: 'edit-video-audio', name: 'تحرير صوت الفيديو', description: 'إزالة صوت الفيديو أو استبداله بملف صوتي آخر مع ضبط مستوى الصوت.', icon: Mic, category: 'video' },
+  { id: 'cut-video', name: 'قص الفيديو', description: 'اقتطاع المقطع المطلوب من الفيديو.', icon: Scissors, category: 'video' },
   { id: 'merge-videos', name: 'دمج الفيديوهات', description: 'دمج عدة مقاطع فيديو في فيديو واحد بالترتيب الذي تختاره.', icon: Combine, category: 'video' },
-  { id: 'compress-video', name: 'ضغط الفيديو', description: 'تقليل حجم ملف الفيديو.', icon: Minimize2, category: 'video' },
   { id: 'change-video-speed', name: 'تغيير سرعة الفيديو', description: 'تسريع الفيديو أو إبطاؤه مع الحفاظ على تزامن الصوت.', icon: Gauge, category: 'video' },
+  { id: 'compress-video', name: 'ضغط الفيديو', description: 'تقليل حجم ملف الفيديو.', icon: Minimize2, category: 'video' },
+  { id: 'edit-video-audio', name: 'تحرير صوت الفيديو', description: 'إزالة صوت الفيديو أو استبداله بملف صوتي آخر مع ضبط مستوى الصوت.', icon: Mic, category: 'video' },
   { id: 'extract-audio-video', name: 'استخراج الصوت من فيديو', description: 'استخراج المسار الصوتي من ملفات الفيديو بصيغة MP3.', icon: Music, category: 'video' },
-  { id: 'video-to-gif', name: 'تحويل الفيديو إلى GIF', description: 'إنشاء GIF متحركة من مقطع فيديو بإعدادات مرنة.', icon: ImageIcon, category: 'video' },
   { id: 'remove-music', name: 'إزالة الموسيقى من الفيديو', description: 'فصل الكلام/الصوت البشري عن الموسيقى وإزالة الخلفية الموسيقية مع الحفاظ على الصوت قدر الإمكان.', icon: AudioLines, category: 'video' },
+  { id: 'video-to-gif', name: 'تحويل الفيديو إلى GIF', description: 'إنشاء GIF متحركة من مقطع فيديو بإعدادات مرنة.', icon: ImageIcon, category: 'video' },
    
   // IMAGES
-{ id: 'resize-image', name: 'تغيير حجم الصورة', description: 'تغيير أبعاد الصورة مع الحفاظ على تناسبها', icon: Maximize2, category: 'images' },
   { id: 'crop-image', name: 'قص الصورة', description: 'قص الجزء الذي تريده من الصورة بسهولة', icon: Crop, category: 'images' },
+  { id: 'resize-image', name: 'تغيير حجم الصورة', description: 'تغيير أبعاد الصورة مع الحفاظ على تناسبها', icon: Maximize2, category: 'images' },
   { id: 'rotate-image', name: 'تدوير وقلب الصورة', description: 'تدوير الصورة أو قلبها أفقياً وعمودياً', icon: RotateCw, category: 'images' },
   { id: 'adjust-image', name: 'تعديل الصورة', description: 'تحسين الإضاءة والألوان ومظهر الصورة', icon: SlidersHorizontal, category: 'images' },
   { id: 'blur-image', name: 'طمس وإخفاء أجزاء من الصورة', description: 'طمس أو إخفاء أجزاء محددة من الصورة لحماية الخصوصية', icon: EyeOff, category: 'images' },
 
   // AUDIO
   { id: 'speech-to-text', name: 'تحويل الكلام إلى نص', description: 'حوّل التسجيلات الصوتية إلى نص مكتوب باستخدام Whisper.', icon: Mic, category: 'audio' },
-  { id: 'record-audio', name: 'تسجيل صوتي', description: 'سجّل صوتك مباشرة من الميكروفون وحسّنه أو حمّله.', icon: AudioLines, category: 'audio' },
   { id: 'cut-audio', name: 'قص الصوت', description: 'اقتطاع مقطع محدد من ملف صوتي.', icon: Scissors, category: 'audio' },
-  { id: 'enhance-audio', name: 'تحسين الصوت', description: 'تحسين الصوت بضبط المستوى والتلاشي والتنعيم والوضوح.', icon: SlidersHorizontal, category: 'audio' },
-  { id: 'clean-audio', name: 'تنظيف الصوت', description: 'إزالة الضوضاء والتشويش من التسجيلات الصوتية.', icon: WandSparkles, category: 'audio' },
   { id: 'merge-audio', name: 'دمج الملفات الصوتية', description: 'دمج عدة ملفات صوتية في ملف واحد بالترتيب المحدد.', icon: Combine, category: 'audio' },
-
+  { id: 'enhance-audio', name: 'تحسين الصوت', description: 'تحسين الصوت بضبط المستوى والتلاشي والتنعيم والوضوح.', icon: SlidersHorizontal, category: 'audio' },
+ 
   // QR CODE
   { id: 'qr-generator', name: 'مولد QR', description: 'إنشاء رموز QR من نص أو روابط أو بيانات', icon: QrCode, category: 'qrcode' },
   { id: 'qr-scanner-image', name: 'مسح QR — صورة', description: 'مسح وفك ترميز رمز QR من صورة مرفوعة', icon: ScanLine, category: 'qrcode' },
