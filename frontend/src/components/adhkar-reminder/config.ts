@@ -13,6 +13,12 @@ export const MORNING_TRIGGER_HOUR = 10;
 /** Evening Adhkar reminder trigger hour in the user's LOCAL time. */
 export const EVENING_TRIGGER_HOUR = 17;
 
+/** Hour at which the morning reminder's visibility window ends (local). */
+export const MORNING_END_HOUR = 12;
+
+/** Hour at which the evening reminder's visibility window ends (local). */
+export const EVENING_END_HOUR = 19;
+
 /**
  * Stacking tier for the reminder cards (fixed-positioned containers).
  * Highest existing layers in Morven:

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, within, act, cleanup, renderHook } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 import {
@@ -11,6 +11,7 @@ import {
   isDisplayedForDay,
   getNextReminderBoundary,
 } from './adhkarReminder';
+import { useAdhkarReminder } from './useAdhkarReminder';
 import { useAdhkarReminderStore } from './adhkarReminderStore';
 import { AdhkarReminderHost } from './AdhkarReminderHost';
 import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore';
@@ -127,7 +128,7 @@ describe('AdhkarReminder logic (pure, local time only)', () => {
     expect(todayKey(at(23, 45, 10))).toBe(D1);
   });
 
-  it('isEligibleToShow: gated by trigger + per-day shown/dismissed state', () => {
+  it('isEligibleToShow: gated by trigger + window + per-day shown/dismissed state', () => {
     // Before the trigger — never eligible.
     expect(isEligibleToShow('morning', at(9, 0), null, null)).toBe(false);
     // After the trigger, nothing recorded — eligible.
@@ -142,9 +143,16 @@ describe('AdhkarReminder logic (pure, local time only)', () => {
     expect(isEligibleToShow('morning', at(10, 0, 11), D1, D1)).toBe(true);
     // Evening stays independent from the morning state.
     expect(isEligibleToShow('evening', at(17, 0), D2, null)).toBe(true);
+    // Eligible while inside the window, but never at/after the end hour.
+    expect(isEligibleToShow('morning', at(11, 59), null, null)).toBe(true);
+    expect(isEligibleToShow('morning', at(12, 0), null, null)).toBe(false);
+    expect(isEligibleToShow('morning', at(12, 30), null, null)).toBe(false);
+    expect(isEligibleToShow('evening', at(18, 59), null, null)).toBe(true);
+    expect(isEligibleToShow('evening', at(19, 0), null, null)).toBe(false);
+    expect(isEligibleToShow('evening', at(23, 0), null, null)).toBe(false);
   });
 
-  it('isDisplayedForDay: once shown it stays, dismiss hides it, old day never displays', () => {
+  it('isDisplayedForDay: shown card stays inside its window, hides at the end, dismiss hides it, old day never displays', () => {
     expect(isDisplayedForDay('morning', at(10, 5), D1, null)).toBe(true);
     expect(isDisplayedForDay('morning', at(10, 5), D1, D1)).toBe(false);
     // Yesterday's shown card is never displayed on a later day.
@@ -152,14 +160,24 @@ describe('AdhkarReminder logic (pure, local time only)', () => {
     // A refreshed-but-not-dismissed card is still "shown today".
     expect(isDisplayedForDay('evening', at(17, 5), D1, null)).toBe(true);
     expect(isDisplayedForDay('evening', at(17, 5), D1, D1)).toBe(false);
+    // The card auto-hides the moment the window ends (12:00 / 19:00).
+    expect(isDisplayedForDay('morning', at(11, 59), D1, null)).toBe(true);
+    expect(isDisplayedForDay('morning', at(12, 0), D1, null)).toBe(false);
+    expect(isDisplayedForDay('evening', at(18, 59), D1, null)).toBe(true);
+    expect(isDisplayedForDay('evening', at(19, 0), D1, null)).toBe(false);
   });
 
-  it('getNextReminderBoundary walks 10:00 → 17:00 → next midnight', () => {
+  it('getNextReminderBoundary walks 10:00 → 12:00 → 17:00 → 19:00 → next midnight', () => {
+    expect(getNextReminderBoundary(at(0, 30))).toEqual(at(10, 0));
     expect(getNextReminderBoundary(at(9, 0))).toEqual(at(10, 0));
-    expect(getNextReminderBoundary(at(10, 0))).toEqual(at(17, 0));
+    expect(getNextReminderBoundary(at(10, 0))).toEqual(at(12, 0));
+    expect(getNextReminderBoundary(at(11, 59))).toEqual(at(12, 0));
+    expect(getNextReminderBoundary(at(12, 0))).toEqual(at(17, 0));
     expect(getNextReminderBoundary(at(16, 59))).toEqual(at(17, 0));
-    expect(getNextReminderBoundary(at(17, 0)).getDate()).toBe(11);
-    const midnight = getNextReminderBoundary(at(17, 0));
+    expect(getNextReminderBoundary(at(17, 0))).toEqual(at(19, 0));
+    expect(getNextReminderBoundary(at(18, 59))).toEqual(at(19, 0));
+    const midnight = getNextReminderBoundary(at(19, 0));
+    expect(midnight.getDate()).toBe(11);
     expect(midnight.getHours()).toBe(0);
     expect(midnight.getMinutes()).toBe(0);
     // Early in the day the next boundary is retargeted to today's 10:00.
@@ -221,8 +239,8 @@ describe('AdhkarReminderHost daily display', () => {
     expect(screen.queryByRole('region', { name: EVENING_REGION })).not.toBeInTheDocument();
   });
 
-  it('keeps the morning reminder visible while the evening trigger has not passed yet', () => {
-    setLocalTime(16, 59);
+  it('keeps the morning reminder visible while still inside its 10:00–12:00 window', () => {
+    setLocalTime(11, 59);
     renderHost();
     expect(screen.queryByRole('region', { name: EVENING_REGION })).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: MORNING_REGION })).toBeInTheDocument();
@@ -235,10 +253,10 @@ describe('AdhkarReminderHost daily display', () => {
     expect(screen.queryByRole('region', { name: EVENING_REGION })).not.toBeInTheDocument();
   });
 
-  it('shows the morning reminder when Morven is opened after 10:00', () => {
+  it('does not show the morning reminder when opened after its 12:00 window end', () => {
     setLocalTime(12, 30);
     renderHost();
-    expect(screen.getByRole('region', { name: MORNING_REGION })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: MORNING_REGION })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: EVENING_REGION })).not.toBeInTheDocument();
   });
 
@@ -258,11 +276,31 @@ describe('AdhkarReminderHost daily display', () => {
     expect(screen.getByRole('region', { name: EVENING_REGION })).toBeInTheDocument();
   });
 
-  it('shows both reminders once the evening trigger passed', () => {
+  it('hides the morning reminder after 12:00; shows the evening reminder from 17:00', () => {
     setLocalTime(18, 30);
     renderHost();
-    expect(screen.getByRole('region', { name: MORNING_REGION })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: MORNING_REGION })).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: EVENING_REGION })).toBeInTheDocument();
+  });
+
+  it('automatically disables the morning reminder when 12:00 arrives (no refresh)', () => {
+    setLocalTime(10, 0);
+    const { result } = renderHook(() => useAdhkarReminder());
+    expect(result.current.isMorningVisible).toBe(true);
+
+    setLocalTime(12, 0);
+    resync();
+    expect(result.current.isMorningVisible).toBe(false);
+  });
+
+  it('automatically disables the evening reminder when 19:00 arrives (no refresh)', () => {
+    setLocalTime(17, 0);
+    const { result } = renderHook(() => useAdhkarReminder());
+    expect(result.current.isEveningVisible).toBe(true);
+
+    setLocalTime(19, 0);
+    resync();
+    expect(result.current.isEveningVisible).toBe(false);
   });
 });
 
@@ -292,20 +330,17 @@ describe('AdhkarReminderHost skip behavior', () => {
   });
 
   it('skip of the morning reminder never touches the evening state', () => {
-    setLocalTime(18, 30);
+    setLocalTime(11, 0);
     renderHost();
     const morning = screen.getByRole('region', { name: MORNING_REGION });
-    const evening = screen.getByRole('region', { name: EVENING_REGION });
     expect(morning).toBeInTheDocument();
-    expect(evening).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: EVENING_REGION })).not.toBeInTheDocument();
 
     fireEvent.click(within(morning).getByRole('button', { name: SKIP_ACTION }));
 
     const state = useAdhkarReminderStore.getState();
     expect(state.dismissedDate.morning).toBe(D1);
     expect(state.dismissedDate.evening).toBeNull();
-    // The evening reminder remains independently shown.
-    expect(screen.getByRole('region', { name: EVENING_REGION })).toBeInTheDocument();
   });
 
   it('a new local day makes the reminder eligible again after a skip', () => {
@@ -329,7 +364,7 @@ describe('AdhkarReminderHost skip behavior', () => {
     // Refresh later the same day, no action taken: still ONE card, not two,
     // because `shownDate` mirrors the once-per-day display decision.
     first.unmount();
-    setLocalTime(12, 0);
+    setLocalTime(11, 30);
     renderHost();
     const regions = screen.getAllByRole('region', { name: MORNING_REGION });
     expect(regions).toHaveLength(1);
