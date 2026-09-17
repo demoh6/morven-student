@@ -89,6 +89,7 @@ export interface Flashcard {
   nextReview: number;
   reviewCount: number;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface PersistentFile {

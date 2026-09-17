@@ -750,7 +750,7 @@ function MedicalFlashcards() {
   const [reviewCount, setReviewCount] = useState(0);
   const [deckSearch, setDeckSearch] = useState('');
   const incrementCardsReviewed = useStatsStore((s) => s.incrementCardsReviewed);
-  const { addNotification, flashcards, addFlashcard, deleteFlashcard } = useAppStore();
+  const { addNotification, flashcards, addFlashcard, updateFlashcard, deleteFlashcard } = useAppStore();
 
   // The custom deck lives in the app store as type:'medical' flashcards (synced
   // cross-device like every other record). Derive it instead of keeping a
@@ -845,17 +845,41 @@ function MedicalFlashcards() {
     }
   }, [studyIndex, studyCards.length, masteredCount, addNotification]);
 
+  /** Persist review/mastery progress for the CURRENT study card. Only custom
+   *  (store-backed, cross-device) cards have a record — built-in decks are
+   *  static content, so their reviews stay anonymous. 'Mastered' schedules the
+   *  card a week out and marks it 'easy'; 'review later' brings it back
+   *  tomorrow and marks it 'hard'. */
+  const applyReviewProgress = useCallback(
+    (mastered: boolean) => {
+      const current = studyCards[studyIndex];
+      if (!current) return;
+      const deck = allDecks.find((d) => d.id === selectedDeck);
+      if (!deck || deck.id !== 'custom') return;
+      const card = medicalCards.find((c) => c.front === current.front && c.back === current.back);
+      if (!card) return;
+      updateFlashcard(card.id, {
+        difficulty: mastered ? 'easy' : 'hard',
+        nextReview: Date.now() + (mastered ? 7 : 1) * 24 * 60 * 60 * 1000,
+        reviewCount: (card.reviewCount ?? 0) + 1,
+      });
+    },
+    [studyCards, studyIndex, selectedDeck, allDecks, medicalCards, updateFlashcard],
+  );
+
   const handleMastered = useCallback(() => {
     setMasteredCount((p) => p + 1);
     incrementCardsReviewed();
+    applyReviewProgress(true);
     nextCard();
-  }, [nextCard, incrementCardsReviewed]);
+  }, [nextCard, incrementCardsReviewed, applyReviewProgress]);
 
   const handleReviewLater = useCallback(() => {
     setReviewCount((p) => p + 1);
     incrementCardsReviewed();
+    applyReviewProgress(false);
     nextCard();
-  }, [nextCard, incrementCardsReviewed]);
+  }, [nextCard, incrementCardsReviewed, applyReviewProgress]);
 
   const handleAddCard = useCallback(() => {
     if (!newFront.trim() || !newBack.trim()) {
@@ -1110,7 +1134,20 @@ function MedicalFlashcards() {
                     <div key={card.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 transition-colors hover:bg-gray-100 dark:bg-dark-surface dark:hover:bg-dark-hover">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate text-gray-900 dark:text-white">{card.front}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{card.back}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{card.back}</p>
+                          {(card.reviewCount ?? 0) > 0 && (
+                            <span
+                              className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                card.difficulty === 'easy'
+                                  ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                  : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300'
+                              }`}
+                            >
+                              {card.difficulty === 'easy' ? 'أتقنتها' : 'مراجعة'} • {card.reviewCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <Button variant="ghost" size="sm" onClick={() => handleDeleteCard(card.id)} className="ms-2 text-red-500">
                         ✕

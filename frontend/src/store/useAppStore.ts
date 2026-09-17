@@ -5,7 +5,7 @@ import { readScoped, writeScoped } from '@/storage/scope';
 import {
   syncCreateTask, syncUpdateTask, syncDeleteTask,
   syncCreateExam, syncUpdateExam, syncDeleteExam,
-  syncCreateFlashcard, syncDeleteFlashcard,
+  syncCreateFlashcard, syncUpdateFlashcard, syncDeleteFlashcard,
 } from '@/services/syncService';
 import { replaceRecordId } from '@/services/syncService';
 import { addPendingId, removePendingId } from '@/services/pendingCreate';
@@ -45,6 +45,7 @@ interface AppStore {
   // Flashcards
   flashcards: Flashcard[];
   addFlashcard: (front: string, back: string, deck: string, type?: 'general' | 'medical') => void;
+  updateFlashcard: (id: string, updates: Partial<Pick<Flashcard, 'front' | 'back' | 'deck' | 'type' | 'difficulty' | 'nextReview' | 'reviewCount'>>) => void;
   deleteFlashcard: (id: string) => void;
 }
 
@@ -204,6 +205,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       nextReview: Date.now(),
       reviewCount: 0,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     const next = [...get().flashcards, card];
     saveState('flashcards', next);
@@ -217,6 +219,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       })
       .catch(() => {});
+  },
+  updateFlashcard: (id, updates) => {
+    const next = get().flashcards.map((f) =>
+      f.id === id ? { ...f, ...updates, updatedAt: Date.now() } : f,
+    );
+    saveState('flashcards', next);
+    set({ flashcards: next });
+    syncUpdateFlashcard(id, updates).catch(() => {});
   },
   deleteFlashcard: (id) => {
     const next = get().flashcards.filter((c) => c.id !== id);

@@ -285,7 +285,7 @@ async function hydrateFromServer(): Promise<void> {
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }));
-  const localNotesRaw = readScoped<{ state?: { notes: Array<{ id: string; updatedAt: number }> }; version?: number } | undefined>('notes', undefined);
+  const localNotesRaw = readScoped<{ state?: { notes: Array<{ id: string; updatedAt: number }>; aliases?: Record<string, string> }; version?: number } | undefined>('notes', undefined);
   const localNotes = localNotesRaw?.state?.notes ?? [];
   const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
   const mergedNotes = generalN.map((sn) => {
@@ -299,7 +299,15 @@ async function hydrateFromServer(): Promise<void> {
     if (notesFetched && !isPending('notes', ln.id)) continue;
     mergedNotes.push(ln);
   }
-  writeScoped('notes', { state: { notes: mergedNotes }, version: 0 });
+  writeScoped('notes', {
+    state: {
+      notes: mergedNotes,
+      // Preserve the local→server alias map so an in-flight editor keeps
+      // resolving a note whose create-sync already swapped its id.
+      ...(localNotesRaw?.state?.aliases ? { aliases: localNotesRaw.state.aliases } : {}),
+    },
+    version: 0,
+  });
 
   const medicalNotesFetched = settled[5].status === 'fulfilled';
   const medicalN = pick(settled[5], [] as api.ServerNote[]).map((n) => ({

@@ -9,6 +9,7 @@ import { NotebookPen, Search, Plus, StickyNote } from 'lucide-react';
 
 export default function NotesPage() {
   const notes = useNotesStore((s) => s.notes);
+  const aliases = useNotesStore((s) => s.aliases);
   const createNote = useNotesStore((s) => s.createNote);
   const updateNote = useNotesStore((s) => s.updateNote);
   const deleteNote = useNotesStore((s) => s.deleteNote);
@@ -20,7 +21,13 @@ export default function NotesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const visibleNotes = useMemo(() => searchNotes(searchQuery), [searchQuery, notes, searchNotes]);
-  const editingNote = editingId ? notes.find((n) => n.id === editingId) : undefined;
+
+  // A freshly-created note starts with a local uuid; once its create-sync is
+  // acknowledged the store swaps it for the server id while keeping the local
+  // uuid in `aliases`. Resolve through the map so the editor never loses the
+  // note it is editing mid-typing.
+  const resolveId = (id: string) => aliases[id] ?? id;
+  const editingNote = editingId ? notes.find((n) => n.id === resolveId(editingId)) : undefined;
 
   const pinnedNotes = visibleNotes.filter((n) => n.pinned);
   const unpinnedNotes = visibleNotes.filter((n) => !n.pinned);
@@ -31,17 +38,18 @@ export default function NotesPage() {
   };
 
   const renderNote = (id: string) => {
-    const note = notes.find((n) => n.id === id);
+    const targetId = resolveId(id);
+    const note = notes.find((n) => n.id === targetId);
     if (!note) return null;
 
-    if (editingId === id) {
+    if (editingId && resolveId(editingId) === targetId) {
       return (
         <NoteEditor
           key={note.id}
           note={note}
           onDone={() => setEditingId(null)}
-          onTitleChange={(value) => updateNote(id, { title: value })}
-          onContentChange={(value) => updateNote(id, { content: value })}
+          onTitleChange={(value) => updateNote(targetId, { title: value })}
+          onContentChange={(value) => updateNote(targetId, { content: value })}
         />
       );
     }
@@ -50,9 +58,9 @@ export default function NotesPage() {
       <NoteCard
         key={note.id}
         note={note}
-        onEdit={() => setEditingId(id)}
-        onDelete={() => setDeleteConfirmId(id)}
-        onTogglePin={() => togglePin(id)}
+        onEdit={() => setEditingId(targetId)}
+        onDelete={() => setDeleteConfirmId(targetId)}
+        onTogglePin={() => togglePin(targetId)}
       />
     );
   };
@@ -148,7 +156,7 @@ export default function NotesPage() {
             onClick={() => {
               if (deleteConfirmId) {
                 deleteNote(deleteConfirmId);
-                if (editingId === deleteConfirmId) setEditingId(null);
+                if (editingId && resolveId(editingId) === deleteConfirmId) setEditingId(null);
                 setDeleteConfirmId(null);
               }
             }}
