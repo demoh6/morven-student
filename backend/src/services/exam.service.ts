@@ -15,7 +15,14 @@ export const createExamSchema = z.object({
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة YYYY-MM-DD"),
-  color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "اللون يجب أن يكون بصيغة Hex"),
+  // The frontend picks a named palette (blue/green/red/purple/orange/teal/pink)
+  // while older API consumers may send a Hex value — accept both so external
+  // sync (create/update/migration) never 400s on the UI's color field.
+  color: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, "اللون يجب أن يكون بصيغة Hex")
+    .or(z.string().trim().regex(/^(blue|green|red|purple|orange|teal|pink)$/, "اللون غير مدعوم")),
   // Stable client-generated id used for idempotent guest→account migration.
   clientId: z.string().trim().min(1, "معرّف العميل مطلوب").max(64, "معرّف العميل طويل جداً").optional(),
 });

@@ -372,6 +372,36 @@ describe("Account-scoped user data APIs", () => {
     assert.equal(del.status, 200);
   });
 
+  it("exams: named palette colors (frontend UI) are accepted, others rejected", async () => {
+    const a = await newUser("exam-color");
+
+    // The ExamCountdownPage sends its palette VALUES ('blue', 'green', …) —
+    // previously those 400'd because the schema only allowed Hex.
+    for (const color of ["blue", "green", "red", "purple", "orange", "teal", "pink"]) {
+      const r = await fetch(
+        `${server.baseUrl}/api/exams`,
+        json("POST", a.accessToken, { name: `اختبار ${color}`, date: "2026-12-01", color })
+      );
+      assert.equal(r.status, 201, `named color ${color} accepted`);
+      assert.equal((await r.json()).exam.color, color);
+    }
+
+    // Hex values still accepted.
+    const hex = await fetch(
+      `${server.baseUrl}/api/exams`,
+      json("POST", a.accessToken, { name: "اختبار hex", date: "2026-12-02", color: "#ff5555" })
+    );
+    assert.equal(hex.status, 201);
+    assert.equal((await hex.json()).exam.color, "#ff5555");
+
+    // Unknown color names rejected.
+    const unknown = await fetch(
+      `${server.baseUrl}/api/exams`,
+      json("POST", a.accessToken, { name: "غير صالح", date: "2026-12-03", color: "magenta" })
+    );
+    assert.equal(unknown.status, 400);
+  });
+
   // ------------------------------------------------------------------
   // Flashcards
   // ------------------------------------------------------------------

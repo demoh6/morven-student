@@ -800,6 +800,45 @@ function applyGuestScope(prevUserId: string | null, clearAccount = false): void 
 }
 
 // ---------------------------------------------------------------------------
+// Refocus refresh
+//
+// Hydration normally runs once per boot. An ALREADY-OPEN device therefore only
+// sees cross-device changes after a reload. To keep a second device convergent
+// in practice, re-run the (read-only, idempotent) hydration whenever the tab is
+// brought back into focus. Guarded: throttled to once per minute and never
+// concurrent with an in-flight refresh.
+// ---------------------------------------------------------------------------
+
+let refreshInFlight = false;
+let lastRefreshAt = 0;
+export const REFRESH_MIN_INTERVAL_MS = 60_000;
+
+export async function refreshAccountData(): Promise<void> {
+  const user = useAuthStore.getState().user;
+  if (!user || user.id !== getScopeUserId()) return;
+  const now = Date.now();
+  if (refreshInFlight || now - lastRefreshAt < REFRESH_MIN_INTERVAL_MS) return;
+  refreshInFlight = true;
+  lastRefreshAt = now;
+  try {
+    await hydrateFromServer();
+    await pushLocalRecordsUp().catch(() => {});
+  } finally {
+    rehydrateAllStores();
+    refreshInFlight = false;
+  }
+}
+
+function installRefocusListener(): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const refreshIfVisible = () => {
+    if (document.visibilityState === 'visible') void refreshAccountData();
+  };
+  window.addEventListener('focus', refreshIfVisible);
+  document.addEventListener('visibilitychange', refreshIfVisible);
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap — call once from App.tsx.
 // ---------------------------------------------------------------------------
 
@@ -808,6 +847,8 @@ let bootstrapped = false;
 export function bootstrapSession(): void {
   if (bootstrapped) return;
   bootstrapped = true;
+
+  installRefocusListener();
 
   // Handle the state AFTER initialize() resolves.
   useAuthStore.subscribe((state, prev) => {
