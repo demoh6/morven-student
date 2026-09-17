@@ -18,7 +18,14 @@ import {
 } from '@/components/UI';
 import { useAppStore } from '@/store/useAppStore';
 import { useStatsStore } from '@/store/useStatsStore';
-import { scopedKey } from '@/storage/scope';
+import { scopedKey, writeScoped } from '@/storage/scope';
+import {
+  syncCreateNote,
+  syncUpdateNote,
+  syncDeleteNote,
+  syncUpdateFlashcard,
+} from '@/services/syncService';
+import { addPendingId, removePendingId } from '@/services/pendingCreate';
 import { Notebook } from 'lucide-react';
 import { ToolHero } from '@/pages/tools/ToolHero';
 import {
@@ -377,12 +384,6 @@ function loadCustomFlashcards(): Flashcard[] {
   } catch {
     return [];
   }
-}
-
-function saveCustomFlashcards(cards: Flashcard[]) {
-  try {
-    localStorage.setItem(scopedKey('medical-flashcards'), JSON.stringify(cards));
-  } catch { /* noop */ }
 }
 
 function loadMedicalNotes(): MedicalNote[] {
@@ -744,7 +745,6 @@ function MedicalFlashcards() {
   const [newFront, setNewFront] = useState('');
   const [newBack, setNewBack] = useState('');
   const [newDeck, setNewDeck] = useState('Custom');
-  const [customCards, setCustomCards] = useState<Flashcard[]>([]);
   const [showAnswer, setShowAnswer] = useState(false);
   const [masteredCount, setMasteredCount] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
@@ -752,23 +752,55 @@ function MedicalFlashcards() {
   const incrementCardsReviewed = useStatsStore((s) => s.incrementCardsReviewed);
   const { addNotification, flashcards, addFlashcard, deleteFlashcard } = useAppStore();
 
-  useEffect(() => {
-    setCustomCards(loadCustomFlashcards());
-  }, []);
+  // The custom deck lives in the app store as type:'medical' flashcards (synced
+  // cross-device like every other record). Derive it instead of keeping a
+  // separate local copy.
+  const medicalCards = useMemo(
+    () => (flashcards ?? []).filter((f) => f.type === 'medical'),
+    [flashcards],
+  );
 
+  // One-time migration: cards created by the pre-sync medical tool lived in a
+  // separate scoped 'medical-flashcards' key AND as type-less duplicates in the
+  // store. Fold that legacy list into the store as proper 'medical' records so
+  // the custom deck is sourced exclusively from the synced store from here on.
   useEffect(() => {
-    saveCustomFlashcards(customCards);
-  }, [customCards]);
+    const legacy = loadCustomFlashcards();
+    if (legacy.length === 0) return;
+    let changed = false;
+    for (const c of legacy) {
+      const current = useAppStore.getState().flashcards ?? [];
+      const key = `${c.front}|${c.back}|${c.deck}`;
+      const match = current.find((s) => `${s.front}|${s.back}|${s.deck}` === key && s.type === 'medical');
+      if (match) continue; // already in the store as a medical card
+      const orphan = current.find((s) => `${s.front}|${s.back}|${s.deck}` === key && s.type !== 'medical');
+      if (orphan) {
+        // Old bug wrote the card to the store with the default type — upgrade it
+        // to 'medical' (locally on disk + in-memory + on the server).
+        const updated = current.map((s) => (s.id === orphan.id ? { ...s, type: 'medical' as const } : s));
+        writeScoped('flashcards', updated);
+        useAppStore.setState({ flashcards: updated });
+        void syncUpdateFlashcard(orphan.id, { type: 'medical' });
+      } else {
+        addFlashcard(c.front, c.back, c.deck, 'medical');
+      }
+      changed = true;
+    }
+    if (changed) {
+      try { localStorage.removeItem(scopedKey('medical-flashcards')); } catch { /* noop */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allDecks = useMemo(() => {
     const customDeck: FlashcardDeck = {
       id: 'custom',
       name: 'Custom',
       icon: <Notebook className="w-8 h-8 text-blue-500" />,
-      cards: customCards.map((c) => ({ front: c.front, back: c.back })),
+      cards: medicalCards.map((c) => ({ front: c.front, back: c.back })),
     };
     return [...BUILT_IN_DECKS, customDeck];
-  }, [customCards]);
+  }, [medicalCards]);
 
   const filteredDecks = useMemo(() => {
     const q = deckSearch.trim().toLowerCase();
@@ -830,20 +862,7 @@ function MedicalFlashcards() {
       addNotification('Please fill in both front and back.', 'warning');
       return;
     }
-    addFlashcard(newFront.trim(), newBack.trim(), newDeck);
-    setCustomCards((prev) => [
-      ...prev,
-      {
-        id: `card-${Date.now()}`,
-        front: newFront.trim(),
-        back: newBack.trim(),
-        deck: newDeck,
-        difficulty: 'medium',
-        nextReview: Date.now(),
-        reviewCount: 0,
-        createdAt: Date.now(),
-      },
-    ]);
+    addFlashcard(newFront.trim(), newBack.trim(), newDeck, 'medical');
     setNewFront('');
     setNewBack('');
     addNotification('Flashcard created!', 'success');
@@ -851,7 +870,6 @@ function MedicalFlashcards() {
 
   const handleDeleteCard = useCallback((id: string) => {
     deleteFlashcard(id);
-    setCustomCards((prev) => prev.filter((c) => c.id !== id));
     addNotification('Flashcard deleted.', 'info');
   }, [deleteFlashcard, addNotification]);
 
@@ -1084,11 +1102,11 @@ function MedicalFlashcards() {
               </div>
             </Card>
 
-            {customCards.length > 0 && (
+            {medicalCards.length > 0 && (
               <Card className="p-6 sm:p-8">
-                <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">{`بطاقاتك المخصصة (${customCards.length})`}</h3>
+                <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">{`بطاقاتك المخصصة (${medicalCards.length})`}</h3>
                 <div className="space-y-2">
-                  {customCards.map((card) => (
+                  {medicalCards.map((card) => (
                     <div key={card.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 transition-colors hover:bg-gray-100 dark:bg-dark-surface dark:hover:bg-dark-hover">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate text-gray-900 dark:text-white">{card.front}</p>
@@ -2364,6 +2382,8 @@ function MedicalNotesTool() {
             : n
         )
       );
+      // Fire-and-forget update so edits propagate to other devices.
+      void syncUpdateNote(editingId, { title: editTitle.trim(), content: editContent.trim(), category: editCategory });
       addNotification('تم تحديث الملاحظة!', 'success');
     } else {
       const newNote: MedicalNote = {
@@ -2375,6 +2395,20 @@ function MedicalNotesTool() {
         updatedAt: Date.now(),
       };
       setNotes((prev) => [newNote, ...prev]);
+      // Track as pending so hydration keeps this local-only note until the
+      // server acknowledges it (same pattern as general notes).
+      addPendingId('notes', newNote.id);
+      void syncCreateNote(newNote.id, {
+        title: newNote.title,
+        content: newNote.content,
+        type: 'medical',
+        category: newNote.category,
+      }).then((serverId) => {
+        if (serverId && serverId !== newNote.id) {
+          setNotes((prev) => prev.map((n) => (n.id === newNote.id ? { ...n, id: serverId } : n)));
+          removePendingId('notes', newNote.id);
+        }
+      }).catch(() => {});
       addNotification('تم إنشاء الملاحظة!', 'success');
     }
     setIsCreating(false);
@@ -2383,6 +2417,8 @@ function MedicalNotesTool() {
 
   const deleteNote = useCallback((id: string) => {
     setNotes((prev) => prev.filter((n) => n.id !== id));
+    removePendingId('notes', id);
+    void syncDeleteNote(id);
     addNotification('تم حذف الملاحظة.', 'info');
   }, [addNotification]);
 

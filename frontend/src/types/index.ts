@@ -84,6 +84,7 @@ export interface Flashcard {
   front: string;
   back: string;
   deck: string;
+  type?: 'general' | 'medical';
   difficulty: 'easy' | 'medium' | 'hard';
   nextReview: number;
   reviewCount: number;

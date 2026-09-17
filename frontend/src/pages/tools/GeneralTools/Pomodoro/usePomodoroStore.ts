@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { scopedKey } from '@/storage/scope';
-import { syncPomodoroSession } from '@/services/syncService';
+import { syncPomodoroSession, syncPomodoroSettings } from '@/services/syncService';
 
 export type PomodoroMode = 'focus' | 'break' | 'longBreak';
 
@@ -44,7 +44,7 @@ interface PomodoroStore extends PomodoroSnapshot {
 }
 
 const STORAGE_KEY = 'pomodoro';
-const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
+export const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
   focusDuration: 25,
   breakDuration: 5,
   longBreakDuration: 15,
@@ -283,7 +283,9 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     setSettings: (settings) => {
       const state = get();
       if (state.isRunning) {
-        update({ ...state, settings });
+        const next: PomodoroSnapshot = { ...state, settings };
+        update(next);
+        syncPomodoroSettings(next.settings);
         return;
       }
       if (settings.timerMode === 'countup') {
@@ -293,10 +295,12 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
           ? { ...state, settings, timeRemaining: 0, isPaused: false, endTimestamp: null }
           : { ...state, settings };
         update(next);
+        syncPomodoroSettings(next.settings);
         return;
       }
       const next: PomodoroSnapshot = { ...state, settings, timeRemaining: durationFor(state.mode, settings), isPaused: false, endTimestamp: null };
       update(next);
+      syncPomodoroSettings(next.settings);
     },
     setTheme: (theme) => {
       const state = get();
@@ -304,6 +308,7 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
       // (running/paused, timeRemaining, endTimestamp, mode, sessions).
       const next: PomodoroSnapshot = { ...state, settings: { ...state.settings, theme } };
       update(next);
+      syncPomodoroSettings(next.settings);
     },
   };
 });

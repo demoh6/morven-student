@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import type { Note } from '@/types';
 import { scopedStorage } from '@/storage/scopedStorage';
 import { syncCreateNote, syncUpdateNote, syncDeleteNote } from '@/services/syncService';
+import { addPendingId, removePendingId } from '@/services/pendingCreate';
 
 interface NotesStore {
   notes: Note[];
@@ -30,10 +31,15 @@ export const useNotesStore = create<NotesStore>()(
         const localId = uuid();
         const note: Note = { id: localId, title, content, pinned: false, createdAt: now, updatedAt: now };
         set((s) => ({ notes: [note, ...s.notes] }));
+        // Track as pending: hydration keeps a local-only note ONLY if it was
+        // just created here and the create-sync hasn't been acknowledged yet.
+        // A note missing from the server and NOT pending was deleted elsewhere.
+        addPendingId('notes', localId);
         // Fire-and-forget sync
         syncCreateNote(localId, { title, content }).then((serverId) => {
           if (serverId && serverId !== localId) {
             set((s) => ({ notes: s.notes.map(n => n.id === localId ? { ...n, id: serverId } : n) }));
+            removePendingId('notes', localId);
           }
         }).catch(() => {});
         return localId;
@@ -48,6 +54,7 @@ export const useNotesStore = create<NotesStore>()(
       },
       deleteNote: (id) => {
         set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
+        removePendingId('notes', id);
         syncDeleteNote(id).catch(() => {});
       },
       togglePin: (id) => {

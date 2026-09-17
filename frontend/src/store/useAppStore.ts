@@ -4,7 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { readScoped, writeScoped } from '@/storage/scope';
 import {
   syncCreateTask, syncUpdateTask, syncDeleteTask,
-  syncCreateExam, syncDeleteExam,
+  syncCreateExam, syncUpdateExam, syncDeleteExam,
   syncCreateFlashcard, syncDeleteFlashcard,
 } from '@/services/syncService';
 import { replaceRecordId } from '@/services/syncService';
@@ -39,11 +39,12 @@ interface AppStore {
   // Exams
   exams: ExamCountdown[];
   addExam: (name: string, date: string, color: string) => void;
+  updateExam: (id: string, updates: Partial<Pick<ExamCountdown, 'name' | 'date' | 'color'>>) => void;
   deleteExam: (id: string) => void;
 
   // Flashcards
   flashcards: Flashcard[];
-  addFlashcard: (front: string, back: string, deck: string) => void;
+  addFlashcard: (front: string, back: string, deck: string, type?: 'general' | 'medical') => void;
   deleteFlashcard: (id: string) => void;
 }
 
@@ -161,25 +162,44 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = [...get().exams, exam];
     saveState('exams', next);
     set({ exams: next });
+    // Track as pending so hydration knows a create-sync is still in flight
+    // (otherwise a local-only exam that the server doesn't have yet would be
+    // mistaken for one deleted on another device and dropped).
+    addPendingId('exams', localId);
     syncCreateExam(localId, { name, date, color })
-      .then((serverId) => { if (serverId) replaceLocalId('exams', localId, serverId); })
+      .then((serverId) => {
+        if (serverId) {
+          replaceLocalId('exams', localId, serverId);
+          removePendingId('exams', localId);
+        }
+      })
       .catch(() => {});
+  },
+  updateExam: (id, updates) => {
+    // Exams have no `updatedAt`; the merge prefers the server version of the
+    // same id, so edits are pushed up immediately to stay authoritative.
+    const next = get().exams.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    saveState('exams', next);
+    set({ exams: next });
+    syncUpdateExam(id, updates).catch(() => {});
   },
   deleteExam: (id) => {
     const next = get().exams.filter((e) => e.id !== id);
     saveState('exams', next);
     set({ exams: next });
+    removePendingId('exams', id);
     syncDeleteExam(id).catch(() => {});
   },
 
   flashcards: loadState('flashcards', []),
-  addFlashcard: (front, back, deck) => {
+  addFlashcard: (front, back, deck, type = 'general') => {
     const localId = uuid();
     const card: Flashcard = {
       id: localId,
       front,
       back,
       deck,
+      type,
       difficulty: 'medium',
       nextReview: Date.now(),
       reviewCount: 0,
@@ -188,14 +208,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const next = [...get().flashcards, card];
     saveState('flashcards', next);
     set({ flashcards: next });
-    syncCreateFlashcard(localId, { front, back, deck })
-      .then((serverId) => { if (serverId) replaceLocalId('flashcards', localId, serverId); })
+    addPendingId('flashcards', localId);
+    syncCreateFlashcard(localId, { front, back, deck, type })
+      .then((serverId) => {
+        if (serverId) {
+          replaceLocalId('flashcards', localId, serverId);
+          removePendingId('flashcards', localId);
+        }
+      })
       .catch(() => {});
   },
   deleteFlashcard: (id) => {
     const next = get().flashcards.filter((c) => c.id !== id);
     saveState('flashcards', next);
     set({ flashcards: next });
+    removePendingId('flashcards', id);
     syncDeleteFlashcard(id).catch(() => {});
   },
 }));

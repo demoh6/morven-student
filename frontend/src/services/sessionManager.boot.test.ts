@@ -70,6 +70,8 @@ vi.mock('@/services/userDataApi', () => ({
   recordPomodoroSession: vi.fn(),
   saveAdhkarProgress: vi.fn(),
   incrementAchievements: vi.fn(),
+  fetchPreferences: vi.fn(),
+  updatePreferences: vi.fn(),
 }));
 
 vi.mock('@/services/profileApi', () => ({
@@ -128,6 +130,16 @@ beforeEach(async () => {
     updatedAt: 1,
   });
   vi.mocked(api.fetchAdhkarProgress).mockResolvedValue(null);
+  vi.mocked(api.fetchPreferences).mockResolvedValue({
+    theme: 'dark',
+    recentTools: [],
+    pomodoroFocusMinutes: 25,
+    pomodoroBreakMinutes: 5,
+    pomodoroLongBreakMinutes: 15,
+    pomodoroSessionsUntilLongBreak: 4,
+    pomodoroTheme: 'classic',
+    pomodoroTimerMode: 'countdown',
+  });
   vi.mocked(profileApi.getPublicAchievements).mockResolvedValue({
     achievements: {
       username: 'userA',

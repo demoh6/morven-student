@@ -197,6 +197,38 @@ export async function deleteNote(id: string): Promise<void> {
   await authRequest(`/api/notes/${id}`, { method: 'DELETE' });
 }
 
+// Preferences -------------------------------------------------------------
+
+export interface ServerPreferences {
+  theme: string;
+  recentTools: string[];
+  pomodoroFocusMinutes: number;
+  pomodoroBreakMinutes: number;
+  pomodoroLongBreakMinutes: number;
+  pomodoroSessionsUntilLongBreak: number;
+  pomodoroTheme: string;
+  pomodoroTimerMode: string;
+  adhkarReminderShownMorning?: string;
+  adhkarReminderDismissedMorning?: string;
+  adhkarReminderShownEvening?: string;
+  adhkarReminderDismissedEvening?: string;
+}
+
+export async function fetchPreferences(): Promise<ServerPreferences> {
+  const res = await authRequest<{ preferences: ServerPreferences }>('/api/preferences');
+  return res.preferences;
+}
+
+export async function updatePreferences(
+  data: Record<string, unknown>,
+): Promise<ServerPreferences> {
+  const res = await authRequest<{ preferences: ServerPreferences }>('/api/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.preferences;
+}
+
 // User files (metadata + bytes) -------------------------------------------
 
 export async function fetchUserFiles(): Promise<ServerUserFile[]> {

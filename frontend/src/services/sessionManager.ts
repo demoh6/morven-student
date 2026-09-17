@@ -25,11 +25,12 @@ import * as api from '@/services/userDataApi';
 import { useAppStore } from '@/store/useAppStore';
 import { useStatsStore } from '@/store/useStatsStore';
 import { useNotesStore } from '@/pages/tools/GeneralTools/Notes/useNotesStore';
-import { usePomodoroStore, loadCurrentPomodoroSnapshot } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
+import { usePomodoroStore, loadCurrentPomodoroSnapshot, DEFAULT_POMODORO_SETTINGS } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
+import type { PomodoroSettings, PomodoroTheme, TimerMode } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore';
 import { rekeyGuestFilesToAccount, getAllFiles } from '@/services/fileStorage';
 import { syncFileToServer } from '@/services/fileSync';
-import { pushLocalRecordsUp } from '@/services/syncService';
+import { pushLocalRecordsUp, syncPomodoroSettings } from '@/services/syncService';
 import { isPending } from '@/services/pendingCreate';
 import { openDB, FILE_STORE } from '@/services/db';
 import type { StoredFile } from '@/services/db';
@@ -178,6 +179,7 @@ async function hydrateFromServer(): Promise<void> {
     api.fetchAdhkarProgress(todayKey()),
     api.fetchUserFiles(),
     fetchOwnAchievements(),
+    api.fetchPreferences(),
   ]);
 
   const pick = <T>(r: PromiseSettledResult<T>, fallback: T) =>
@@ -217,7 +219,8 @@ async function hydrateFromServer(): Promise<void> {
   }
   writeScoped('tasks', mergedTasks);
 
-  // --- Exams: merge server INTO local ---
+  // --- Exams: server is source of truth; keep ONLY pending local-only exams ---
+  const examsFetched = settled[1].status === 'fulfilled';
   const serverExams = pick(settled[1], [] as api.ServerExam[]).map((e) => ({
     id: e.id,
     name: e.name,
@@ -225,15 +228,20 @@ async function hydrateFromServer(): Promise<void> {
     color: e.color,
     createdAt: e.createdAt,
   }));
-  const localExams = readScoped<Array<{ id: string; createdAt: number }>>('exams', []);
-  const localExamIds = new Set(localExams.map((e) => e.id));
-  const mergedExams = [...localExams];
-  for (const se of serverExams) {
-    if (!localExamIds.has(se.id)) mergedExams.push(se);
+  const localExams = readScoped<Array<{ id: string; name: string; date: string; color: string; createdAt: number }>>('exams', []);
+  const serverExamIds = new Set(serverExams.map((e) => e.id));
+  const mergedExams = [...serverExams];
+  for (const le of localExams) {
+    if (serverExamIds.has(le.id)) continue;
+    // Drop a local-only exam when the server fetch succeeded and it is NOT a
+    // pending local creation — it was deleted on another device.
+    if (examsFetched && !isPending('exams', le.id)) continue;
+    mergedExams.push(le);
   }
   writeScoped('exams', mergedExams);
 
   // --- Flashcards (general + medical): merge server INTO local ---
+  const flashcardsFetched = settled[2].status === 'fulfilled' && settled[3].status === 'fulfilled';
   const generalFC = pick(settled[2], [] as api.ServerFlashcard[]);
   const medicalFC = pick(settled[3], [] as api.ServerFlashcard[]);
   const serverFlashcards = [...generalFC, ...medicalFC].map((f) => ({
@@ -257,14 +265,19 @@ async function hydrateFromServer(): Promise<void> {
   });
   const serverFCIds = new Set(serverFlashcards.map((f) => f.id));
   for (const lf of localFlashcards) {
-    if (!serverFCIds.has(lf.id)) mergedFlashcards.push(lf);
+    if (serverFCIds.has(lf.id)) continue;
+    // Drop a local-only flashcard when fetches succeeded and it is not a
+    // pending local creation — it was deleted on another device.
+    if (flashcardsFetched && !isPending('flashcards', lf.id)) continue;
+    mergedFlashcards.push(lf);
   }
   writeScoped('flashcards', mergedFlashcards);
 
-  // --- Notes (general + medical): merge server INTO local ---
-  const generalN = pick(settled[4], [] as api.ServerNote[]);
-  const medicalN = pick(settled[5], [] as api.ServerNote[]);
-  const serverNotes = [...generalN, ...medicalN].map((n) => ({
+  // --- Notes: split into general (persisted 'notes' store) and medical (raw
+  //  'medical-notes' array). Each merge keeps local-only records ONLY when they
+  //  are pending local creations; everything else was deleted on another device.
+  const notesFetched = settled[4].status === 'fulfilled';
+  const generalN = pick(settled[4], [] as api.ServerNote[]).map((n) => ({
     id: n.id,
     title: n.title,
     content: n.content,
@@ -275,27 +288,80 @@ async function hydrateFromServer(): Promise<void> {
   const localNotesRaw = readScoped<{ state?: { notes: Array<{ id: string; updatedAt: number }> }; version?: number } | undefined>('notes', undefined);
   const localNotes = localNotesRaw?.state?.notes ?? [];
   const localNotesMap = new Map(localNotes.map((n) => [n.id, n]));
-  const mergedNotes = serverNotes.map((sn) => {
+  const mergedNotes = generalN.map((sn) => {
     const local = localNotesMap.get(sn.id);
     if (local && local.updatedAt >= sn.updatedAt) return local;
     return sn;
   });
-  const serverNoteIds = new Set(serverNotes.map((n) => n.id));
+  const serverNoteIds = new Set(generalN.map((n) => n.id));
   for (const ln of localNotes) {
-    if (!serverNoteIds.has(ln.id)) mergedNotes.push(ln);
+    if (serverNoteIds.has(ln.id)) continue;
+    if (notesFetched && !isPending('notes', ln.id)) continue;
+    mergedNotes.push(ln);
   }
   writeScoped('notes', { state: { notes: mergedNotes }, version: 0 });
 
-  // --- Pomodoro stats: keep local if higher (Math.max) ---
+  const medicalNotesFetched = settled[5].status === 'fulfilled';
+  const medicalN = pick(settled[5], [] as api.ServerNote[]).map((n) => ({
+    id: n.id,
+    title: n.title,
+    content: n.content,
+    category: n.category ?? 'Other',
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  }));
+  const localMedicalNotes = readScoped<Array<{ id: string; updatedAt: number }>>('medical-notes', []);
+  const localMedicalNotesMap = new Map(localMedicalNotes.map((n) => [n.id, n]));
+  const mergedMedicalNotes = medicalN.map((sn) => {
+    const local = localMedicalNotesMap.get(sn.id);
+    if (local && local.updatedAt >= sn.updatedAt) return local;
+    return sn;
+  });
+  const serverMedicalNoteIds = new Set(medicalN.map((n) => n.id));
+  for (const ln of localMedicalNotes) {
+    if (serverMedicalNoteIds.has(ln.id)) continue;
+    if (medicalNotesFetched && !isPending('notes', ln.id)) continue;
+    mergedMedicalNotes.push(ln);
+  }
+  writeScoped('medical-notes', mergedMedicalNotes);
+
+  // --- Pomodoro stats + settings: keep local if higher (Math.max), adopt
+  //  server settings when they differ from defaults (cross-device preference),
+  //  otherwise push THIS device's custom settings up so other devices learn
+  //  them on their next login.
   const pomo = pick(settled[6], null as api.ServerPomodoroStats | null);
-  if (pomo) {
+  const prefs = pick(settled[10], null as api.ServerPreferences | null);
+  if (pomo || prefs) {
     const current = usePomodoroStore.getState();
-    writeScoped('pomodoro', {
+    let settings = current.settings;
+    if (prefs) {
+      const serverSettings: PomodoroSettings = {
+        focusDuration: prefs.pomodoroFocusMinutes,
+        breakDuration: prefs.pomodoroBreakMinutes,
+        longBreakDuration: prefs.pomodoroLongBreakMinutes,
+        sessionsUntilLongBreak: prefs.pomodoroSessionsUntilLongBreak,
+        theme: (prefs.pomodoroTheme.toLowerCase() as PomodoroTheme) || 'classic',
+        timerMode: (prefs.pomodoroTimerMode.toLowerCase() as TimerMode) || 'countdown',
+      };
+      const serverIsDefault = JSON.stringify(serverSettings) === JSON.stringify(DEFAULT_POMODORO_SETTINGS);
+      const localIsDefault = JSON.stringify(current.settings) === JSON.stringify(DEFAULT_POMODORO_SETTINGS);
+      if (!serverIsDefault && JSON.stringify(current.settings) !== JSON.stringify(serverSettings)) {
+        // Another device customized the pomodoro → adopt its settings here.
+        settings = serverSettings;
+      } else if (serverIsDefault && !localIsDefault) {
+        // Server still on defaults but THIS device customized → teach it.
+        syncPomodoroSettings(current.settings);
+      }
+    }
+    const snapshot = {
       ...current,
-      completedSessions: Math.max(current.completedSessions, pomo.completedSessions),
-      totalFocusSeconds: Math.max(current.totalFocusSeconds, pomo.totalFocusSeconds),
-      lastFocusSeconds: Math.max(current.lastFocusSeconds, pomo.lastFocusSeconds),
-    });
+      settings,
+      completedSessions: pomo ? Math.max(current.completedSessions, pomo.completedSessions) : current.completedSessions,
+      totalFocusSeconds: pomo ? Math.max(current.totalFocusSeconds, pomo.totalFocusSeconds) : current.totalFocusSeconds,
+      lastFocusSeconds: pomo ? Math.max(current.lastFocusSeconds, pomo.lastFocusSeconds) : current.lastFocusSeconds,
+    };
+    writeScoped('pomodoro', snapshot);
+    usePomodoroStore.setState(snapshot);
   }
 
   // --- Adhkar progress: merge by maxing counts ---
@@ -516,6 +582,42 @@ export async function migrateGuestToServer(
           content: n.content,
           pinned: n.pinned ?? false,
           clientId: n.id,
+        });
+      }
+    });
+  }
+
+  // Medical notes (raw array under 'medical-notes') — same idempotent pattern
+  if (snap['medical-notes']) {
+    await tryLogical(outcome, 'medical-notes', async () => {
+      const notes: Array<{ id: string; title: string; content: string; category?: string }> = JSON.parse(snap['medical-notes'] as string);
+      for (const n of notes) {
+        await api.createNote({
+          title: n.title,
+          content: n.content,
+          pinned: false,
+          type: 'medical',
+          category: n.category ?? 'Other',
+          clientId: n.id,
+        });
+      }
+    });
+  }
+
+  // Medical flashcards (raw array under 'medical-flashcards')
+  if (snap['medical-flashcards']) {
+    await tryLogical(outcome, 'medical-flashcards', async () => {
+      const cards: Array<{ id: string; front: string; back: string; deck: string; difficulty?: string; nextReview?: number; reviewCount?: number }> = JSON.parse(snap['medical-flashcards'] as string);
+      for (const c of cards) {
+        await api.createFlashcard({
+          front: c.front,
+          back: c.back,
+          deck: c.deck,
+          type: 'medical',
+          difficulty: c.difficulty ?? 'medium',
+          nextReview: c.nextReview ?? 0,
+          reviewCount: c.reviewCount ?? 0,
+          clientId: c.id,
         });
       }
     });

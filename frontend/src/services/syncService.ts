@@ -151,7 +151,7 @@ export async function syncDeleteFlashcard(id: string): Promise<void> {
 
 export async function syncCreateNote(
   localId: string,
-  data: { title: string; content: string; pinned?: boolean },
+  data: { title: string; content: string; pinned?: boolean; type?: string; category?: string | null },
 ): Promise<string | null> {
   if (!isLoggedIn()) return null;
   try {
@@ -159,6 +159,8 @@ export async function syncCreateNote(
       title: data.title,
       content: data.content,
       pinned: data.pinned ?? false,
+      type: data.type ?? 'general',
+      category: data.category ?? null,
       clientId: localId,
     });
     return serverNote.id;
@@ -195,6 +197,32 @@ export async function syncPomodoroSession(
   try {
     await api.recordPomodoroSession(focusedSeconds);
   } catch { /* offline */ }
+}
+
+let pomodoroSettingsTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounced pomodoro settings sync — coalesces consecutive settings/theme
+ *  changes into a single PATCH so cross-device setups converge. */
+export function syncPomodoroSettings(settings: {
+  focusDuration: number;
+  breakDuration: number;
+  longBreakDuration: number;
+  sessionsUntilLongBreak: number;
+  theme: string;
+  timerMode: string;
+}): void {
+  if (!isLoggedIn()) return;
+  if (pomodoroSettingsTimer) clearTimeout(pomodoroSettingsTimer);
+  pomodoroSettingsTimer = setTimeout(() => {
+    api.updatePreferences({
+      pomodoroFocusMinutes: settings.focusDuration,
+      pomodoroBreakMinutes: settings.breakDuration,
+      pomodoroLongBreakMinutes: settings.longBreakDuration,
+      pomodoroSessionsUntilLongBreak: settings.sessionsUntilLongBreak,
+      pomodoroTheme: settings.theme,
+      pomodoroTimerMode: settings.timerMode,
+    }).catch(() => {});
+  }, 500);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +387,30 @@ export async function pushLocalRecordsUp(): Promise<void> {
       }
     }
   }
+
+  const medNoteById = localRecordIds(userId, 'medical-notes');
+  if (Object.keys(medNoteById).length > 0) {
+    const server = await api.fetchNotes('medical').catch(() => null);
+    if (server) {
+      const have = new Set(server.map((n) => n.id));
+      for (const [id, rec] of Object.entries(medNoteById)) {
+        if (have.has(id)) continue;
+        const n = rec as MedicalNoteShape;
+        const serverId = await api
+          .createNote({
+            title: n.title,
+            content: n.content,
+            pinned: false,
+            type: 'medical',
+            category: n.category ?? 'Other',
+            clientId: id,
+          })
+          .then((r) => r.id)
+          .catch(() => null);
+        if (serverId && serverId !== id) replaceAccountRecordId(userId, 'medical-notes', id, serverId);
+      }
+    }
+  }
 }
 
 interface TaskShape {
@@ -381,3 +433,4 @@ interface FlashcardShape {
   difficulty?: string;
 }
 interface NoteShape { id: string; title: string; content: string; pinned?: boolean }
+interface MedicalNoteShape { id: string; title: string; content: string; category?: string }
