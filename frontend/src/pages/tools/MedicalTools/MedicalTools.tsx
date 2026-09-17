@@ -26,7 +26,6 @@ import {
   syncUpdateFlashcard,
 } from '@/services/syncService';
 import { addPendingId, removePendingId } from '@/services/pendingCreate';
-import { Notebook } from 'lucide-react';
 import { ToolHero } from '@/pages/tools/ToolHero';
 import {
   summarizeText,
@@ -36,6 +35,7 @@ import {
   explainSimply,
 } from '@/utils/ai-helpers';
 import type { Flashcard, MedicalNote } from '@/types';
+import {Notebook} from 'lucide-react';
 import {
   Search,
   Info,
@@ -73,6 +73,7 @@ import {
   Beaker,
   Baby,
   Siren,
+  
   type LucideIcon,
 } from 'lucide-react';
 import { groupBy } from '@/utils/groupBy';
@@ -2551,14 +2552,14 @@ function MedicalNotesTool() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold dark:text-white">{'الملاحظات الطبية'}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{'أنشئ وأدر ملاحظات سريرية باستخدام قوالب جاهزة (SOAP، H&P، متابعة، خروج).'}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{'أنشئ وأدر ملاحظات سريرية باستخدام قوالب جاهزة.'}</p>
         </div>
         <Button onClick={startCreate}>+ {'ملاحظة جديدة'}</Button>
       </div>
 
       {notes.length === 0 ? (
         <EmptyState
-          icon={<span className="text-4xl">📝</span>}
+          icon={<Notebook className="w-9 h-9" />}
           title={'لا توجد ملاحظات بعد'}
           description={'أنشئ أول ملاحظة طبية لك باستخدام قوالمنا الاحترافية.'}
         />

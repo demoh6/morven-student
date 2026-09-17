@@ -60,8 +60,8 @@ export const tools: Tool[] = [
   { id: 'drug-summary', name: 'مرجع الأدوية', description: 'وصول سريع لمعلومات الأدوية والتفاعلات', icon: Pill, category: 'medical' },
   { id: 'lab-values', name: 'قيم المختبر', description: 'مرجع للقيم المختبرية الطبيعية ونطاقاتها', icon: FlaskConical, category: 'medical' },
   { id: 'medical-notes', name: 'ملاحظات طبية', description: 'تدوين الملاحظات السريرية بالقوالب', icon: ClipboardPlus, category: 'medical' },
-  { id: 'medical-flashcards', name: 'بطاقات طبية', description: 'بطاقات دراسية طبية جاهزة', icon: BookOpenCheck, category: 'medical' },
-  { id: 'medical-mcq', name: 'أسئلة طبية اختيار من متعدد', description: 'إنشاء أسئلة اختيار من متعدد طبية', icon: HelpCircle, category: 'medical' },
+  { id: 'medical-flashcards', name: 'بطاقات طبية', description: 'بطاقات دراسية طبية جاهزة', icon: BookOpenCheck, comingSoon: true, category: 'medical' },
+  { id: 'medical-mcq', name: 'أسئلة طبية اختيار من متعدد', description: 'إنشاء أسئلة اختيار من متعدد طبية', icon: HelpCircle, comingSoon: true, category: 'medical' },
 
   // ENGINEERING
   // Code Tools
@@ -231,7 +231,6 @@ export const categoryOrder: ToolCategory[] = [
   'general',
   'medical',
   'engineering',
-
   'pdf',
   'powerpoint',
   'video',
