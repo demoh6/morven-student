@@ -5,8 +5,6 @@ import { Card } from '@/components/UI/Card';
 import { StudyGroupCard } from '@/pages/connect/Groups/StudyGroupCard';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { listGroups, type Group } from '@/services/groupApi';
-import { isPreviewMode } from '@/dev/previewMode';
-import { MOCK_GROUPS } from '@/dev/mockData';
 import {
   Users,
   BookOpen,
@@ -37,12 +35,8 @@ export default function ConnectLandingPage() {
     }
     (async () => {
       try {
-        if (isPreviewMode()) {
-          setGroups(MOCK_GROUPS);
-        } else {
-          const { groups: g } = await listGroups();
-          setGroups(g);
-        }
+        const { groups: g } = await listGroups();
+        setGroups(g);
       } catch {
         // silently fail
       } finally {

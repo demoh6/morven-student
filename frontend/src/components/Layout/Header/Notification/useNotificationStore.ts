@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { isPreviewMode } from '@/dev/previewMode';
 import { getAccessToken } from '@/pages/auth/authApi';
 import {
   fetchNotifications as fetchNotificationsApi,
@@ -32,33 +31,6 @@ interface NotificationState {
   deleteNotification: (id: string) => Promise<void>;
 }
 
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: 'n1',
-    title: 'مرحباً بك في الملتقى',
-    body: 'تم إطلاق الملتقى ! انضم لمجموعتك الدراسية وابدأ التعاون مع زملائك.',
-    type: 'announcement',
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    read: false,
-  },
-  {
-    id: 'n2',
-    title: 'تحديث جديد',
-    body: 'تم إضافة غرفة الدراسة المباشرة. يمكنك الآن الانضمام لغرف دراسية مع زملائك.',
-    type: 'update',
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    read: false,
-  },
-  {
-    id: 'n3',
-    title: 'معلومة',
-    body: 'يمكنك إنشاء حتى 3 مجموعات دراسية. انضم لمجموعات زملائك باستخدام رمز الانضمام.',
-    type: 'info',
-    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    read: true,
-  },
-];
-
 const DISMISSED_KEY = 'morven:dismissedNotifications';
 
 function loadDismissedIds(): string[] {
@@ -86,12 +58,11 @@ function recompute(state: NotificationState, notifications: Notification[]): Par
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
-  // M5: no hardcoded mock data in production — start empty. The demo mocks are
-  // only seeded for the dev-only preview mode.
-  notifications: isPreviewMode() ? MOCK_NOTIFICATIONS : [],
-  unreadCount: isPreviewMode() ? MOCK_NOTIFICATIONS.filter((n) => !n.read).length : 0,
+  // Start empty; notifications come from the server.
+  notifications: [],
+  unreadCount: 0,
   loading: false,
-  dismissedIds: isPreviewMode() ? [] : loadDismissedIds(),
+  dismissedIds: loadDismissedIds(),
 
   addNotification: (n) => {
     const notification: Notification = {
@@ -157,7 +128,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   fetchNotifications: async () => {
-    if (isPreviewMode()) return;
     if (!getAccessToken()) return;
     set({ loading: true });
     try {

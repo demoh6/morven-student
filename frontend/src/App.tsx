@@ -7,7 +7,6 @@ import { AdhkarReminderHost } from '@/components/adhkar-reminder';
 import { ToolErrorBoundary } from '@/pages/tools/ToolErrorBoundary';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminRoute } from '@/pages/admin/AdminRoute';
-import { PreviewBanner } from '@/dev/PreviewBanner';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { useThemeStore } from '@/store/useThemeStore';
@@ -122,7 +121,6 @@ export default function App() {
       <NotificationHost />
       <PrayerPauseHost />
       <AdhkarReminderHost />
-      <PreviewBanner />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

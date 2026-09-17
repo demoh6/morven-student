@@ -3,8 +3,6 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { Button } from '@/components/UI/Button';
 import { Input } from '@/components/UI/Input';
 import { Card } from '@/components/UI/Card';
-import { isPreviewMode } from '@/dev/previewMode';
-import { mockResetPassword } from '@/dev/mockApi';
 import { resetPassword } from '@/pages/auth/authApi';
 
 export default function ResetPasswordPage() {
@@ -36,11 +34,7 @@ export default function ResetPasswordPage() {
 
     setLoading(true);
     try {
-      if (isPreviewMode()) {
-        await mockResetPassword(token, password);
-      } else {
-        await resetPassword(token, password);
-      }
+      await resetPassword(token, password);
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ');

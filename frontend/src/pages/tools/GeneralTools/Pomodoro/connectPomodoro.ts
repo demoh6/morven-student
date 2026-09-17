@@ -124,7 +124,6 @@ export async function submitSessionToAllGroups(state: ReturnType<typeof usePomod
   const durationSeconds = state.lastFocusSeconds > 0 ? state.lastFocusSeconds : settings.focusDuration * 60;
   const sessionId = generateSessionId(settings);
 
-  // In preview mode, mock submission only needs one representative group.
   const targets = myGroupIds.length > 0 ? myGroupIds : [activeGroupId].filter((g): g is string => !!g);
   if (targets.length === 0) return;
 

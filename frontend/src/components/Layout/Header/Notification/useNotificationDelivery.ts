@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { useNotificationStore } from '@/components/Layout/Header/Notification/useNotificationStore';
 import { onNotification } from '@/services/socketService';
-import { isPreviewMode } from '@/dev/previewMode';
 
 // Lightweight polling fallback so a newly targeted notification (e.g. a
 // SUB_ADMIN promotion) reaches the user even when the socket is not connected
@@ -25,7 +24,7 @@ export function useNotificationDelivery() {
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
 
   useEffect(() => {
-    if (!user || isPreviewMode()) return;
+    if (!user) return;
 
     void fetchNotifications();
 

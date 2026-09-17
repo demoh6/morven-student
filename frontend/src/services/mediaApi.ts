@@ -1,8 +1,6 @@
 import { toNetworkError } from './apiError';
 import { API_BASE } from './apiBase';
 
-console.log("[mediaApi] import.meta.env.VITE_API_URL =", import.meta.env.VITE_API_URL);
-
 const API_BASE_URL = API_BASE;
 
 // Must stay in sync with the backend limits (MAX_VIDEO_SIZE_MB env var).

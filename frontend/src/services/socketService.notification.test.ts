@@ -41,9 +41,6 @@ vi.mock('@/pages/auth/authApi', () => ({
   setTokenRotationHandler: () => {},
   refreshTokenIfNeeded: () => Promise.resolve(true),
 }));
-vi.mock('@/dev/previewMode', () => ({
-  isPreviewMode: () => false,
-}));
 
 const pushPayload = {
   notification: {

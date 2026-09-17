@@ -1,6 +1,5 @@
 import { io, Socket } from 'socket.io-client';
 import { getAccessToken, refreshTokenIfNeeded, setTokenRotationHandler } from '@/pages/auth/authApi';
-import { isPreviewMode } from '@/dev/previewMode';
 import { API_BASE } from './apiBase';
 
 export interface PresenceUser {
@@ -47,39 +46,7 @@ let onLeaderboardUpdate: LeaderboardCallback | null = null;
 let onFocusingUpdate: FocusingCallback | null = null;
 let onNotificationEvent: NotificationCallback | null = null;
 
-// DEV-ONLY: Mock presence simulation for preview mode
-let previewPresenceInterval: ReturnType<typeof setInterval> | null = null;
-
-// Preview users demonstrate the feature:
-// - preview-user-001 : online + focusing (covers "online + pomodoro running")
-// - user-002 (أحمد محمد): online + NOT focusing
-// - user-004 (سارة خالد): online + NOT focusing (non-zero hours elsewhere)
-// (offline users simply are absent from this list — no standalone indicator)
-const MOCK_PRESENCE_USERS: PresenceUser[] = [
-  { userId: 'preview-user-001', username: 'preview_user', displayName: 'معاينة المستخدم', avatarUrl: null, focusing: true, lastHeartbeat: Date.now(), socketCount: 1 },
-  { userId: 'user-002', username: 'ahmed_m', displayName: 'أحمد محمد', avatarUrl: null, focusing: false, lastHeartbeat: Date.now(), socketCount: 1 },
-  { userId: 'user-004', username: 'sara_k', displayName: 'سارة خالد', avatarUrl: null, focusing: false, lastHeartbeat: Date.now(), socketCount: 2 },
-];
-
-function simulatePreviewPresence() {
-  setTimeout(() => {
-    onPresenceUpdate?.([...MOCK_PRESENCE_USERS]);
-  }, 300);
-
-  previewPresenceInterval = setInterval(() => {
-    const updated = MOCK_PRESENCE_USERS.map((u) => ({
-      ...u,
-      lastHeartbeat: Date.now(),
-    }));
-    onPresenceUpdate?.([...updated]);
-  }, 15_000);
-}
-
 export function connectSocket(): Socket {
-  if (isPreviewMode()) {
-    return { connected: true, id: 'preview-socket' } as Socket;
-  }
-
   if (socket?.connected) return socket;
 
   const token = getAccessToken();
@@ -167,7 +134,6 @@ export function connectSocket(): Socket {
 /** Emit the current user's live focusing (Pomodoro running) state to the server,
  *  which broadcasts it to every group the user belongs to (cross-group). */
 export function emitFocusingState(focusing: boolean) {
-  if (isPreviewMode()) return;
   if (!socket) {
     try { connectSocket(); } catch { return; }
   }
@@ -179,15 +145,6 @@ export function emitFocusingState(focusing: boolean) {
 }
 
 export function joinGroup(groupId: string) {
-  if (isPreviewMode()) {
-    if (currentGroupId && currentGroupId !== groupId) {
-      leaveGroup(currentGroupId);
-    }
-    currentGroupId = groupId;
-    simulatePreviewPresence();
-    return;
-  }
-
   if (!socket?.connected) {
     connectSocket();
   }
@@ -201,17 +158,6 @@ export function joinGroup(groupId: string) {
 }
 
 export function leaveGroup(groupId: string) {
-  if (isPreviewMode()) {
-    if (previewPresenceInterval) {
-      clearInterval(previewPresenceInterval);
-      previewPresenceInterval = null;
-    }
-    if (currentGroupId === groupId) {
-      currentGroupId = null;
-    }
-    return;
-  }
-
   socket?.emit('leave-group', { groupId });
   if (currentGroupId === groupId) {
     currentGroupId = null;
@@ -219,15 +165,6 @@ export function leaveGroup(groupId: string) {
 }
 
 export function disconnectSocket() {
-  if (isPreviewMode()) {
-    if (previewPresenceInterval) {
-      clearInterval(previewPresenceInterval);
-      previewPresenceInterval = null;
-    }
-    currentGroupId = null;
-    return;
-  }
-
   stopHeartbeat();
   currentGroupId = null;
   socket?.disconnect();

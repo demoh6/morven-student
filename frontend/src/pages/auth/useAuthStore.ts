@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import type { AuthUser } from '@/pages/auth/authApi';
 import * as api from '@/pages/auth/authApi';
-import { isPreviewMode } from '@/dev/previewMode';
-import { mockRefresh, mockLogin, mockRegister, mockLogout } from '@/dev/mockApi';
 
 interface AuthState {
   user: AuthUser | null;
@@ -45,12 +43,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
       if (get().initialized) return Promise.resolve();
       const run = (async () => {
         set({ loading: true });
-        if (isPreviewMode()) {
-          const result = await mockRefresh();
-          api.setAccessToken(result.accessToken);
-          set({ user: result.user, initialized: true, loading: false });
-          return;
-        }
         try {
           // Try to refresh — the browser sends the httpOnly cookie automatically.
           const result = await api.refresh();
@@ -70,12 +62,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
     register: async (email, username, password, displayName) => {
       set({ loading: true, error: null });
       try {
-        if (isPreviewMode()) {
-          const result = await mockRegister(email, username, password, displayName);
-          api.setAccessToken(result.accessToken);
-          set({ user: result.user, loading: false });
-          return;
-        }
         const result = await api.register(email, username, password, displayName);
         set({ user: result.user, loading: false });
       } catch (err) {
@@ -88,12 +74,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
     login: async (email, password) => {
       set({ loading: true, error: null });
       try {
-        if (isPreviewMode()) {
-          const result = await mockLogin(email, password);
-          api.setAccessToken(result.accessToken);
-          set({ user: result.user, loading: false });
-          return;
-        }
         const result = await api.login(email, password);
         set({ user: result.user, loading: false });
       } catch (err) {
@@ -106,14 +86,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
     googleLogin: async (credential) => {
       set({ loading: true, error: null });
       try {
-        // Google has no login flow in preview mode; fall back to the shared path
-        // so the store mismatch cannot break the UI.
-        if (isPreviewMode()) {
-          const result = await mockLogin('google@preview.local', 'preview-google');
-          api.setAccessToken(result.accessToken);
-          set({ user: result.user, loading: false });
-          return;
-        }
         const result = await api.googleLogin(credential);
         set({ user: result.user, loading: false });
       } catch (err) {
@@ -125,11 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     logout: async () => {
       try {
-        if (isPreviewMode()) {
-          await mockLogout();
-        } else {
-          await api.logout();
-        }
+        await api.logout();
       } finally {
         set({ user: null });
       }

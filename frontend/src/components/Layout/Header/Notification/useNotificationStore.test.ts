@@ -2,8 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { useNotificationStore } from '@/components/Layout/Header/Notification/useNotificationStore';
 import { fetchNotifications as fetchNotificationsApi } from '@/components/Layout/Header/Notification/notificationApi';
 
-vi.mock('@/dev/previewMode', () => ({ isPreviewMode: () => false }));
-
 vi.mock('@/pages/auth/authApi', () => ({
   getAccessToken: () => 'test-token',
 }));

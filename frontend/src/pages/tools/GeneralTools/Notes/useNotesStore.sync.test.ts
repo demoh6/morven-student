@@ -4,14 +4,6 @@ import { useAppStore } from '@/store/useAppStore';
 import { setScopeToAccount } from '@/storage/scope';
 import { isPending, pendingIds } from '@/services/pendingCreate';
 
-vi.mock('@/dev/previewMode', () => ({ isPreviewMode: () => false }));
-vi.mock('@/dev/mockApi', () => ({
-  mockRefresh: vi.fn(),
-  mockLogin: vi.fn(),
-  mockRegister: vi.fn(),
-  mockLogout: vi.fn(),
-}));
-
 vi.mock('@/pages/auth/useAuthStore', () => ({
   useAuthStore: {
     getState: () => ({ user: { id: 'sync-test' } }),

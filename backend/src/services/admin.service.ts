@@ -39,7 +39,10 @@ export async function listUsers() {
     include: usersInclude,
     orderBy: { createdAt: "asc" },
   });
-  return users.map(({ passwordHash, ...user }) => user);
+  return users.map(({ passwordHash, profile, ...user }) => ({
+    ...user,
+    avatarUrl: profile?.avatarUrl ?? null,
+  }));
 }
 
 // Targeted notification sent whenever a user is FIRST granted the SUB_ADMIN
@@ -104,7 +107,8 @@ export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN"
 
   const { user: updated, notification: promotionNotification } = outcome;
 
-  const { passwordHash, ...safe } = updated;
+  const { passwordHash, profile, ...safe } = updated;
+  const result = { ...safe, avatarUrl: profile?.avatarUrl ?? null };
 
   if (promotionNotification) {
     emitToUser(userId, "notification:new", {
@@ -119,5 +123,5 @@ export async function updateUserRole(userId: string, role: "ADMIN" | "SUB_ADMIN"
     });
   }
 
-  return safe;
+  return result;
 }

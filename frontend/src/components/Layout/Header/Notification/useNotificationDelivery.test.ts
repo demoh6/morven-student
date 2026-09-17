@@ -5,8 +5,6 @@ import { useNotificationStore } from '@/components/Layout/Header/Notification/us
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { onNotification } from '@/services/socketService';
 
-vi.mock('@/dev/previewMode', () => ({ isPreviewMode: () => false }));
-
 vi.mock('@/services/socketService', () => ({
   onNotification: vi.fn(),
 }));

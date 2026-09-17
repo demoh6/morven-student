@@ -1,5 +1,4 @@
 import { authRequest } from '@/pages/auth/authApi';
-import { isPreviewMode } from '@/dev/previewMode';
 
 export interface ServerNotification {
   id: string;
@@ -13,7 +12,6 @@ export interface ServerNotification {
 export async function fetchNotifications(): Promise<{
   notifications: ServerNotification[];
 }> {
-  if (isPreviewMode()) return { notifications: [] };
   return authRequest<{ notifications: ServerNotification[] }>(
     '/api/notifications',
   );
@@ -24,7 +22,6 @@ export async function createNotification(input: {
   body: string;
   type: 'info' | 'announcement' | 'update';
 }): Promise<{ notification: ServerNotification }> {
-  if (isPreviewMode()) throw new Error('غير متاح في وضع المعاينة');
   return authRequest<{ notification: ServerNotification }>(
     '/api/notifications',
     {
@@ -37,7 +34,6 @@ export async function createNotification(input: {
 export async function deleteNotification(
   id: string,
 ): Promise<{ message: string }> {
-  if (isPreviewMode()) throw new Error('غير متاح في وضع المعاينة');
   return authRequest<{ message: string }>(`/api/notifications/${id}`, {
     method: 'DELETE',
   });
@@ -46,14 +42,12 @@ export async function deleteNotification(
 export async function markAsRead(
   id: string,
 ): Promise<{ message: string }> {
-  if (isPreviewMode()) return { message: '' };
   return authRequest<{ message: string }>(`/api/notifications/${id}/read`, {
     method: 'POST',
   });
 }
 
 export async function markAllAsRead(): Promise<{ message: string }> {
-  if (isPreviewMode()) return { message: '' };
   return authRequest<{ message: string }>('/api/notifications/read-all', {
     method: 'POST',
   });
@@ -62,7 +56,6 @@ export async function markAllAsRead(): Promise<{ message: string }> {
 export async function unmarkAsRead(
   id: string,
 ): Promise<{ message: string }> {
-  if (isPreviewMode()) return { message: '' };
   return authRequest<{ message: string }>(`/api/notifications/${id}/read`, {
     method: 'DELETE',
   });

@@ -35,6 +35,7 @@ export type AdhkarPeriod = 'morning' | 'evening';
 export type Dhikr = {
   id: string;
   category: DhikrCategory;
+  title?: string;
   text: string;
   repeatCount: number;
   source: string;

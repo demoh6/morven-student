@@ -84,8 +84,17 @@ const storage = multer.diskStorage({
   },
 });
 
-export const uploadResource = multer({
+// Intersection augments @types/multer (written for multer 1.x) with the
+// `defParamCharset` option that the installed multer 2.x runtime supports
+// and documents in its README.
+const uploadOptions: multer.Options & { defParamCharset?: string } = {
+  // Decode multipart filenames as UTF-8 (browsers send raw UTF-8 bytes in
+  // filename=). Without this, multer defaults to latin1 and Arabic names
+  // arrive mojibaked, so the stored/displayed name is not the original.
+  defParamCharset: "utf8",
   storage,
   limits: { fileSize: MAX_RESOURCE_FILE_SIZE, files: MAX_RESOURCE_FILES },
   fileFilter: resourceFilter,
-});
+};
+
+export const uploadResource = multer(uploadOptions);

@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/UI/Button';
 import { Input } from '@/components/UI/Input';
 import { Card } from '@/components/UI/Card';
-import { isPreviewMode } from '@/dev/previewMode';
-import { mockRequestPasswordReset } from '@/dev/mockApi';
 import { requestPasswordReset } from '@/pages/auth/authApi';
 
 export default function ForgotPasswordPage() {
@@ -18,11 +16,7 @@ export default function ForgotPasswordPage() {
     setError('');
     setLoading(true);
     try {
-      if (isPreviewMode()) {
-        await mockRequestPasswordReset(email);
-      } else {
-        await requestPasswordReset(email);
-      }
+      await requestPasswordReset(email);
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ');

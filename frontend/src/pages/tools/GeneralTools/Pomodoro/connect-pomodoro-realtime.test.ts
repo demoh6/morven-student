@@ -19,9 +19,6 @@ vi.mock('@/pages/auth/authApi', () => ({
   setTokenRotationHandler: () => {},
   refreshTokenIfNeeded: () => Promise.resolve(true),
 }));
-vi.mock('@/dev/previewMode', () => ({
-  isPreviewMode: () => false,
-}));
 vi.mock('@/services/groupApi', () => ({
   listGroups: vi.fn().mockResolvedValue({ groups: [] }),
   submitPomodoroSession: vi.fn().mockResolvedValue({}),

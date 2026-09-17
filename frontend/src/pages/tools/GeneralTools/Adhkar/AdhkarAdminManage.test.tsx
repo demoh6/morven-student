@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import AdhkarPage from '@/pages/tools/GeneralTools/Adhkar/AdhkarPage';
@@ -141,7 +141,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     );
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
 
-    await user.click(screen.getByRole('button', { name: 'تعديل ذكر آية الكرسي' }));
+    await user.click(within(screen.getByTestId('adhkar-me-ayatul-kursi')).getByRole('button', { name: 'تعديل ذكر الذكر' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('تعديل الذكر');
@@ -154,7 +154,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
 
     await waitFor(() => {
       expect(mockedUpdateOfficial).toHaveBeenCalledWith('me-ayatul-kursi', {
-        title: 'آية الكرسي — معدلة',
+        title: '',
         text: expect.stringContaining('اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ'),
         source: 'القرآن الكريم — سورة البقرة (٢٥٥)',
       });
@@ -194,9 +194,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     );
     await openCategory(user, /أذكار قبل الدراسة/);
 
-    await user.click(
-      screen.getByRole('button', { name: 'تعديل ذكر دعاء القرآن بطلب العلم' }),
-    );
+    await user.click(within(screen.getByTestId('adhkar-bs-rabbi-zidni-ilma')).getByRole('button', { name: 'تعديل ذكر الذكر' }));
     await screen.findByRole('dialog');
     await user.click(screen.getByRole('button', { name: 'حفظ التعديلات' }));
 
@@ -236,7 +234,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     await waitFor(() => {
       expect(mockedUpdateSubmission).toHaveBeenCalledWith(
         'aa-1',
-        expect.objectContaining({ title: 'العنوان المنقح' }),
+        expect.objectContaining({ title: 'ذكر مقبول دراسي' }),
       );
     });
     expect(toasts()).toContain('تم حفظ تعديلات الذكر');
@@ -258,11 +256,11 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     );
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
 
-    await user.click(screen.getByRole('button', { name: 'حذف ذكر آية الكرسي' }));
+    await user.click(within(screen.getByTestId('adhkar-me-ayatul-kursi')).getByRole('button', { name: 'حذف ذكر الذكر' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('حذف الذكر');
-    expect(dialog).toHaveTextContent('آية الكرسي');
+    expect(dialog).toHaveTextContent('ذكر بدون عنوان');
     expect(dialog).toHaveTextContent('سيتم حذف هذا الذكر نهائياً');
     expect(dialog).toHaveTextContent('لا يمكن التراجع عن هذا الإجراء');
 
@@ -272,7 +270,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     expect(screen.getByTestId('adhkar-me-ayatul-kursi')).toBeInTheDocument();
 
     // Confirm this time: card is removed and the API is called.
-    await user.click(screen.getByRole('button', { name: 'حذف ذكر آية الكرسي' }));
+    await user.click(within(screen.getByTestId('adhkar-me-ayatul-kursi')).getByRole('button', { name: 'حذف ذكر الذكر' }));
     await screen.findByRole('dialog');
     await user.click(screen.getByRole('button', { name: 'حذف نهائي' }));
 
@@ -282,7 +280,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('adhkar-me-ayatul-kursi')).not.toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /حذف ذكر آية الكرسي/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('آية الكرسي')).not.toBeInTheDocument();
     expect(toasts()).toContain('تم حذف الذكر نهائياً');
   });
 
@@ -335,7 +333,7 @@ describe('Adhkar admin edit/delete (visible only to ADMIN role)', () => {
     );
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
 
-    await user.click(screen.getByRole('button', { name: 'حذف ذكر آية الكرسي' }));
+    await user.click(within(screen.getByTestId('adhkar-me-ayatul-kursi')).getByRole('button', { name: 'حذف ذكر الذكر' }));
     await screen.findByRole('dialog');
     await user.click(screen.getByRole('button', { name: 'حذف نهائي' }));
 

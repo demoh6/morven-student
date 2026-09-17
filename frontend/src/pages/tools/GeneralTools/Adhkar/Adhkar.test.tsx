@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { useAdhkarStore } from '@/pages/tools/GeneralTools/Adhkar/useAdhkarStore';
@@ -109,7 +109,7 @@ describe('Adhkar data integrity (offline, bundled local data)', () => {
   });
 
   it('searches locally without any network dependency', () => {
-    const results = searchAdhkar('آية الكرسي', ADHKARS);
+    const results = searchAdhkar('اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ', ADHKARS);
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].text).toContain('اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ');
   });
@@ -231,13 +231,13 @@ describe('Adhkar day-period split (local 02:00 / 14:00 rule)', () => {
   it('labels the morning/evening section header only with the active time', () => {
     const morningHero = getAdhkarHeroText('morning');
     expect(morningHero.title).toBe('أذكار الصباح');
-    expect(morningHero.description).toContain('الصباح');
-    expect(morningHero.description).not.toContain('المساء');
+    expect(morningHero.description).toContain('صباح');
+    expect(morningHero.description).not.toContain('مساء');
 
     const eveningHero = getAdhkarHeroText('evening');
     expect(eveningHero.title).toBe('أذكار المساء');
-    expect(eveningHero.description).toContain('المساء');
-    expect(eveningHero.description).not.toContain('الصباح');
+    expect(eveningHero.description).toContain('مساء');
+    expect(eveningHero.description).not.toContain('صباح');
   });
 });
 
@@ -294,7 +294,7 @@ describe('AdhkarPage overview', () => {
     render(<AdhkarPage />);
 
     const search = screen.getByRole('textbox', { name: 'البحث في الأذكار' });
-    await user.type(search, 'آية الكرسي');
+    await user.type(search, 'سورة البقرة');
 
     expect(await screen.findByTestId('adhkar-me-ayatul-kursi')).toBeInTheDocument();
     // The overview cards are replaced by results while searching.
@@ -308,17 +308,17 @@ describe('AdhkarPage category view', () => {
     render(<AdhkarPage />);
     await openCategory(user, /أذكار قبل الدراسة/);
 
-    expect(screen.getByText('سؤال العلم النافع')).toBeInTheDocument();
-    expect(screen.getAllByText(/التكرار: 1/)).toHaveLength(4);
+    expect(screen.getByTestId('adhkar-bs-rabbi-zidni-ilma')).toBeInTheDocument();
+    expect(screen.getAllByText('0 / 1')).toHaveLength(4);
   });
 
-  it('shows category progress at the top', async () => {
-    const user = userEvent.setup();
+  it('shows category progress on the overview card', () => {
     render(<AdhkarPage />);
-    await openCategory(user, /أذكار قبل الدراسة/);
 
     const total = getAdhkarByCategory('before-study').length;
-    expect(screen.getByText(`تم إنجاز 0 من ${total}`)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(`تم إنجاز 0 من ${total}`).length,
+    ).toBeGreaterThan(0);
   });
 
   it('increments the counter on click, marks completion and stays visible', async () => {
@@ -327,13 +327,12 @@ describe('AdhkarPage category view', () => {
     await openCategory(user, /أذكار قبل الدراسة/);
 
     // "دعاء القرآن بطلب العلم" has 1 repetition.
-    const counter = screen.getByRole('button', {
-      name: /دعاء القرآن بطلب العلم، تم العد 0 من 1/,
-    });
+    const card = screen.getByTestId('adhkar-bs-rabbi-zidni-ilma');
+    const counter = within(card).getByRole('button', { name: 'الذكر، تم العد 0 من 1' });
     await user.click(counter);
 
     expect(
-      screen.getByRole('button', { name: /دعاء القرآن بطلب العلم، تم العد 1 من 1/ }),
+      within(card).getByRole('button', { name: 'الذكر، تم العد 1 من 1' }),
     ).toBeInTheDocument();
     // Completion badge appears; the card is not removed.
     expect(screen.getByText('تمّ')).toBeInTheDocument();
@@ -350,48 +349,50 @@ describe('AdhkarPage category view', () => {
     await goBackToOverview(user);
     await openCategory(user, /أذكار الصباح والمساء/, /أذكار الصباح|أذكار المساء/);
 
-    const label = (n: number) => `سورة الإخلاص والمعوذتان، تم العد ${n} من 3`;
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(label(0)) }));
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(label(1)) }));
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(label(2)) }));
+    const label = (n: number) => `الذكر، تم العد ${n} من 3`;
+    const card = screen.getByTestId('adhkar-me-muawwidhat');
+    fireEvent.click(within(card).getByRole('button', { name: new RegExp(label(0)) }));
+    fireEvent.click(within(card).getByRole('button', { name: new RegExp(label(1)) }));
+    fireEvent.click(within(card).getByRole('button', { name: new RegExp(label(2)) }));
     // An extra click must NOT go past 3.
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(label(3)) }));
-    expect(screen.getByRole('button', { name: new RegExp(label(3)) })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /تم العد 4 من 3/ })).not.toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: new RegExp(label(3)) }));
+    expect(within(card).getByRole('button', { name: new RegExp(label(3)) })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /تم العد 4 من 3/ })).not.toBeInTheDocument();
 
     // Reset brings it back to 0.
     fireEvent.click(
-      screen.getByRole('button', { name: /إعادة تعيين عداد سورة الإخلاص والمعوذتان/ }),
+      within(card).getByRole('button', { name: /إعادة تعيين عداد الذكر/ }),
     );
-    expect(screen.getByRole('button', { name: new RegExp(label(0)) })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: new RegExp(label(0)) })).toBeInTheDocument();
   });
 
-  it('updates the progress line as dhikr are completed', async () => {
+  it('updates the overview progress once a dhikr is completed', async () => {
     const user = userEvent.setup();
     render(<AdhkarPage />);
     await openCategory(user, /أذكار قبل الدراسة/);
 
     await user.click(
-      screen.getByRole('button', { name: /دعاء القرآن بطلب العلم، تم العد 0 من 1/ }),
+      within(screen.getByTestId('adhkar-bs-rabbi-zidni-ilma')).getByRole('button', { name: 'الذكر، تم العد 0 من 1' }),
     );
+
+    await goBackToOverview(user);
 
     const total = getAdhkarByCategory('before-study').length;
     expect(screen.getByText(`تم إنجاز 1 من ${total}`)).toBeInTheDocument();
   });
 
-  it('shows a subtle completion state when the whole category is done', async () => {
-    const user = userEvent.setup();
-    render(<AdhkarPage />);
-    await openCategory(user, /أذكار قبل الدراسة/);
-
-    // Complete every dhikr in the category directly through the store.
+  it('shows a completed state on the overview card when the whole category is done', () => {
+    // Complete every dhikr in the category directly through the store before
+    // mounting, so the overview renders the finished state on first paint.
     for (const dhikr of getAdhkarByCategory('before-study')) {
       useAdhkarStore.getState().increment(dhikr.id, dhikr.repeatCount);
     }
 
-    await waitFor(() =>
-      expect(screen.getByText('أتممت جميع أذكار هذا القسم')).toBeInTheDocument(),
-    );
+    render(<AdhkarPage />);
+
+    const total = getAdhkarByCategory('before-study').length;
+    expect(screen.getByText(`تم إنجاز ${total} من ${total}`)).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
   it('renders every dhikr card directly without group headings (morning/evening)', async () => {

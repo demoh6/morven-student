@@ -144,8 +144,6 @@ describe("Adhkar submissions API", () => {
     });
 
     for (const overrides of [
-      { title: "   " },
-      { title: undefined },
       { text: "" },
       { text: undefined },
     ]) {
@@ -657,6 +655,6 @@ describe("Adhkar submissions API", () => {
       });
 
     assert.equal((await patch("does-not-exist")).status, 404);
-    assert.equal((await patch("also-missing", { title: "", text: "y", source: "" })).status, 400);
+    assert.equal((await patch("also-missing", { title: "", text: "", source: "" })).status, 400);
   });
 });

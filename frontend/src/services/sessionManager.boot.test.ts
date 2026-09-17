@@ -26,15 +26,6 @@ const NOTES_RAW = JSON.stringify({
   version: 0,
 });
 
-vi.mock('@/dev/previewMode', () => ({ isPreviewMode: () => false }));
-
-vi.mock('@/dev/mockApi', () => ({
-  mockRefresh: vi.fn(),
-  mockLogin: vi.fn(),
-  mockRegister: vi.fn(),
-  mockLogout: vi.fn(),
-}));
-
 vi.mock('@/pages/auth/authApi', () => ({
   refresh: vi.fn(),
   login: vi.fn(),

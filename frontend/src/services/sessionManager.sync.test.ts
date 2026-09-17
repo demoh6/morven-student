@@ -20,15 +20,6 @@ const USER_A: AuthUser = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
-vi.mock('@/dev/previewMode', () => ({ isPreviewMode: () => false }));
-
-vi.mock('@/dev/mockApi', () => ({
-  mockRefresh: vi.fn(),
-  mockLogin: vi.fn(),
-  mockRegister: vi.fn(),
-  mockLogout: vi.fn(),
-}));
-
 vi.mock('@/pages/auth/authApi', () => ({
   refresh: vi.fn(),
   login: vi.fn(),

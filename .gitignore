@@ -8,6 +8,7 @@ dist/
 
 # Frontend build/dev artifacts
 dev-dist/
+tsconfig.tsbuildinfo
 
 # Backend dev-server logs
 backend/backend-dev-*.log

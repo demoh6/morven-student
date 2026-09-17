@@ -160,7 +160,7 @@ describe('Adhkar add-dhikr submissions', () => {
     await waitFor(() => {
       expect(mockedSubmit).toHaveBeenCalledWith({
         categoryId: 'morning-evening',
-        title: 'دعاء مقترح',
+        title: '',
         text: 'نص مقترح',
         source: 'مصدر مقترح',
       });

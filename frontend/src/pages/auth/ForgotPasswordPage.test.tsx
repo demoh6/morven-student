@@ -6,9 +6,6 @@ import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage';
 vi.mock('@/pages/auth/authApi', () => ({
   requestPasswordReset: vi.fn(),
 }));
-vi.mock('@/dev/previewMode', () => ({
-  isPreviewMode: () => false,
-}));
 
 import { requestPasswordReset } from '@/pages/auth/authApi';
 

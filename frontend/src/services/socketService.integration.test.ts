@@ -19,9 +19,6 @@ vi.mock('@/pages/auth/authApi', () => ({
   setTokenRotationHandler: () => {},
   refreshTokenIfNeeded: () => Promise.resolve(true),
 }));
-vi.mock('@/dev/previewMode', () => ({
-  isPreviewMode: () => false,
-}));
 
 /**
  * Minimal in-process replica of the backend's `/connect` namespace presence +

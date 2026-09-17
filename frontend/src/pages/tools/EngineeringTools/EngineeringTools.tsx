@@ -1866,7 +1866,7 @@ function UnixTimestamp() {
 
 function QrGeneratorTool() {
   const { addNotification } = useAppStore();
-  const [text, setText] = useState('https://morven.app');
+  const [text, setText] = useState('https://morven.online');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [generating, setGenerating] = useState(false);
 

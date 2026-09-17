@@ -268,7 +268,7 @@ export async function authenticateWithGoogle(identity: GoogleIdentity) {
   const emailUser = await prisma.user.findUnique({ where: { email } });
   if (emailUser) {
     throw new AuthError(
-      "هذا البريد الإلكتروني مسجل بالفعل بحساب بكلمة مرور. يرجى تسجيل الدخول باستخدام كلمة المرور ثم ربط حساب Google من إعدادات الحساب",
+      "هذا البريد الإلكتروني مسجل بالفعل بحساب بكلمة مرور. يرجى تسجيل الدخول باستخدام حساب آخر",
       409,
       "GOOGLE_EMAIL_EXISTS"
     );

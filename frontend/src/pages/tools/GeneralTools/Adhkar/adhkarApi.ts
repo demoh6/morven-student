@@ -1,6 +1,5 @@
 import { authRequest } from '@/pages/auth/authApi';
 import { toNetworkError } from '@/services/apiError';
-import { isPreviewMode } from '@/dev/previewMode';
 import type { DhikrCategory } from '@/pages/tools/GeneralTools/Adhkar/adhkar';
 
 export type DhikrSubmissionStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -78,14 +77,10 @@ export async function submitDhikrSubmission(
  * Fetches the approved user-submitted dhikr list, along with the admin
  * mutations (edits + tombstone deletions) for official content (public — works
  * for guests). PENDING/REJECTED rows are never returned by the server, so
- * offline/reserved content is unaffected. Returns empty collections in preview
- * mode and on network failure, so the bundled offline adhkar remain the source
- * of truth.
+ * offline/reserved content is unaffected. Returns empty collections on network
+ * failure, so the bundled offline adhkar remain the source of truth.
  */
 export async function fetchApprovedAdhkar(): Promise<OfficialApprovedResponse> {
-  if (isPreviewMode()) {
-    return { adhkar: [], officialEdits: [], officialDeletions: [] };
-  }
   try {
     const data = await authRequest<OfficialApprovedResponse>(
       '/api/adhkar/submissions/official',

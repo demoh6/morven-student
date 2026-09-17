@@ -1,20 +1,5 @@
 import { authRequest, authedFetch } from '@/pages/auth/authApi';
 import { API_BASE } from './apiBase';
-import { isPreviewMode } from '@/dev/previewMode';
-import {
-  mockCreateGroup,
-  mockJoinGroup,
-  mockListGroups,
-  mockGetGroupDetails,
-  mockLeaveGroup,
-  mockDeleteGroup,
-  mockUpdateGroup,
-  mockRemoveMember,
-  mockUpdateMemberRole,
-  mockSubmitPomodoroSession,
-  mockGetGroupLeaderboard,
-  mockGetWeeklyGroupRanking,
-} from '@/dev/mockApi';
 
 export interface Group {
   id: string;
@@ -61,7 +46,6 @@ export interface GroupDetails extends Group {
 }
 
 export async function createGroup(data: { name: string; description?: string; image?: File }): Promise<{ group: Group }> {
-  if (isPreviewMode()) return mockCreateGroup(data);
   if (data.image) {
     const fd = new FormData();
     fd.append('name', data.name);
@@ -78,9 +62,6 @@ export async function createGroup(data: { name: string; description?: string; im
 }
 
 export async function updateGroup(groupId: string, data: { name?: string; description?: string; image?: File; removeImage?: boolean }): Promise<{ group: Group }> {
-  if (isPreviewMode()) {
-    return mockUpdateGroup(groupId, { name: data.name, description: data.description }).then((r) => r as { group: Group });
-  }
   if (data.image || data.removeImage || data.name !== undefined || data.description !== undefined) {
     const fd = new FormData();
     if (data.name !== undefined) fd.append('name', data.name);
@@ -95,7 +76,6 @@ export async function updateGroup(groupId: string, data: { name?: string; descri
 }
 
 export async function joinGroup(joinCode: string): Promise<{ group: Group }> {
-  if (isPreviewMode()) return mockJoinGroup(joinCode);
   return authRequest<{ group: Group }>('/api/groups/join', {
     method: 'POST',
     body: JSON.stringify({ joinCode }),
@@ -103,31 +83,26 @@ export async function joinGroup(joinCode: string): Promise<{ group: Group }> {
 }
 
 export async function listGroups(): Promise<{ groups: Group[] }> {
-  if (isPreviewMode()) return mockListGroups();
   return authRequest<{ groups: Group[] }>('/api/groups');
 }
 
 export async function getGroupDetails(groupId: string): Promise<{ group: GroupDetails }> {
-  if (isPreviewMode()) return mockGetGroupDetails(groupId);
   return authRequest<{ group: GroupDetails }>(`/api/groups/${groupId}`);
 }
 
 export async function leaveGroup(groupId: string): Promise<{ message: string }> {
-  if (isPreviewMode()) return mockLeaveGroup(groupId);
   return authRequest<{ message: string }>(`/api/groups/${groupId}/leave`, {
     method: 'POST',
   });
 }
 
 export async function deleteGroup(groupId: string): Promise<{ message: string }> {
-  if (isPreviewMode()) return mockDeleteGroup(groupId);
   return authRequest<{ message: string }>(`/api/groups/${groupId}`, {
     method: 'DELETE',
   });
 }
 
 export async function removeMember(groupId: string, memberId: string): Promise<{ message: string }> {
-  if (isPreviewMode()) return mockRemoveMember(groupId, memberId);
   return authRequest<{ message: string }>(`/api/groups/${groupId}/members/${memberId}`, {
     method: 'DELETE',
   });
@@ -138,7 +113,6 @@ export async function updateMemberRole(
   memberId: string,
   role: 'ADMIN' | 'MEMBER',
 ): Promise<{ message: string }> {
-  if (isPreviewMode()) return mockUpdateMemberRole(groupId, memberId, role);
   return authRequest<{ message: string }>(`/api/groups/${groupId}/members/${memberId}/role`, {
     method: 'PATCH',
     body: JSON.stringify({ role }),
@@ -154,7 +128,6 @@ export async function submitPomodoroSession(data: {
   durationSeconds: number;
   sessionId: string;
 }): Promise<{ session: { id: string; durationSeconds: number; completedAt: string }; userTotalSeconds: number }> {
-  if (isPreviewMode()) return mockSubmitPomodoroSession(data);
   return authRequest(`/api/pomodoro/submit`, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -162,7 +135,6 @@ export async function submitPomodoroSession(data: {
 }
 
 export async function getGroupLeaderboard(groupId: string): Promise<{ leaderboard: LeaderboardEntry[] }> {
-  if (isPreviewMode()) return mockGetGroupLeaderboard(groupId);
   return authRequest<{ leaderboard: LeaderboardEntry[] }>(`/api/groups/${groupId}/leaderboard`);
 }
 
@@ -171,7 +143,6 @@ export async function getWeeklyGroupRanking(groupId: string): Promise<{
   weekEnd: string;
   ranking: WeeklyRankingEntry[];
 }> {
-  if (isPreviewMode()) return mockGetWeeklyGroupRanking(groupId);
   return authRequest<{ weekStart: string; weekEnd: string; ranking: WeeklyRankingEntry[] }>(
     `/api/groups/${groupId}/leaderboard/weekly`,
   );
