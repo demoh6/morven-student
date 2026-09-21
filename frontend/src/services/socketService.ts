@@ -46,6 +46,9 @@ let onLeaderboardUpdate: LeaderboardCallback | null = null;
 let onFocusingUpdate: FocusingCallback | null = null;
 let onNotificationEvent: NotificationCallback | null = null;
 
+/** Listeners invoked every time the socket (re)connects. */
+let reconnectListeners: (() => void)[] = [];
+
 export function connectSocket(): Socket {
   if (socket?.connected) return socket;
 
@@ -75,6 +78,9 @@ export function connectSocket(): Socket {
     if (currentGroupId) {
       socket?.emit('join-group', { groupId: currentGroupId });
     }
+    // Clients can re-assert transient state (e.g. Pomodoro focusing) on any
+    // (re)connect so server-side state is never left stale after a drop.
+    for (const listener of reconnectListeners) listener();
   });
 
   socket.on('group-presence-update', (data: { groupId: string; users: PresenceUser[] }) => {
@@ -193,6 +199,18 @@ export function onFocusing(callback: FocusingCallback) {
 
 export function onNotification(callback: NotificationCallback | null) {
   onNotificationEvent = callback;
+}
+
+/**
+ * Register a listener that fires once every time the socket (re)connects.
+ * Returns an unsubscribe function so owners can clean up without lingering
+ * callbacks across reconnect cycles.
+ */
+export function onSocketReconnect(listener: () => void): () => void {
+  reconnectListeners.push(listener);
+  return () => {
+    reconnectListeners = reconnectListeners.filter((l) => l !== listener);
+  };
 }
 
 function startHeartbeat() {
