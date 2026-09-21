@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { useNotesStore, sortNotes } from '@/pages/tools/GeneralTools/Notes/useNotesStore';
@@ -9,6 +9,7 @@ import AchievementsPanel from '@/pages/Dashboard/Achievements/AchievementsPanel'
 import { formatFileSize } from '@/utils/file';
 import { APP_DISPLAY_LOCALE } from '@/utils/displayLocale';
 import type { Task } from '@/types';
+import { getDailyPomodoroSeconds, localDayKey, tasksCreatedOnDay } from '@/pages/Dashboard/dailyStats';
 import {
   CheckSquare,
   FolderOpen,
@@ -54,16 +55,39 @@ function QuickSummary() {
   const { files } = useFileStorage();
   const totalFocusSeconds = usePomodoroStore((s) => s.totalFocusSeconds);
 
-  const today = new Date().toISOString().split('T')[0];
+  // Re-render when the local calendar day rolls over so the daily cards reset to
+  // 0 at 12:00 AM without a page reload. The interval is a safety net; focusing
+  // the tab/window re-checks immediately.
+  const [dayTick, setDayTick] = useState(0);
+  const dayKeyRef = useRef(localDayKey(new Date()));
+  useEffect(() => {
+    const refresh = () => {
+      const key = localDayKey(new Date());
+      if (key !== dayKeyRef.current) {
+        dayKeyRef.current = key;
+        setDayTick((t) => t + 1);
+      }
+    };
+    const id = setInterval(refresh, 30_000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+
   const tasksDueToday = useMemo(
-    () => tasks.filter((tk) => tk.dueDate === today && !tk.completed).length,
-    [tasks, today],
+    () => tasksCreatedOnDay(tasks, new Date()),
+    [tasks, dayTick],
   );
   const filesCount = files.length;
   const pomodoroHours = useMemo(() => {
-    const h = totalFocusSeconds / 3600;
-    return h >= 1 ? `${h.toFixed(1)}س` : `${Math.round(totalFocusSeconds / 60)}د`;
-  }, [totalFocusSeconds]);
+    const dailyFocusSeconds = getDailyPomodoroSeconds(totalFocusSeconds, new Date());
+    const h = dailyFocusSeconds / 3600;
+    return h >= 1 ? `${h.toFixed(1)}س` : `${Math.round(dailyFocusSeconds / 60)}د`;
+  }, [totalFocusSeconds, dayTick]);
 
   const stats = [
     { icon: ListChecks, label: 'مهام مستحقة اليوم', value: tasksDueToday, bg: 'bg-emerald-50', bgDark: 'dark:bg-emerald-900/30', text: 'text-emerald-600', ring: 'ring-emerald-100', ringDark: 'dark:ring-emerald-800/40', compact: false },

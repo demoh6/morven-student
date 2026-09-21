@@ -253,6 +253,35 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
         isPaused: false,
         endTimestamp: null,
       };
+      // Record the focused/elapsed study time first (like Skip), then reset the
+      // session back to its initial (not running) state. Only focus sessions
+      // with actually-elapsed time are credited; breaks and fresh sessions are
+      // a plain reset with no recording and no phantom completed session.
+      if (state.mode === 'focus') {
+        let focusedSeconds: number;
+        if (isCountUp(state)) {
+          // Count Up: the currently counted time (running or frozen while paused).
+          focusedSeconds = elapsedSeconds(state);
+        } else {
+          // Countdown: the time actually spent so far (full duration - remaining).
+          const remaining = state.isRunning ? remainingSeconds(state) : state.timeRemaining;
+          focusedSeconds = Math.max(0, Math.min(state.settings.focusDuration * 60 - remaining, state.settings.focusDuration * 60));
+        }
+        if (focusedSeconds > 0) {
+          const reachedLongBreak = state.currentSession + 1 >= state.settings.sessionsUntilLongBreak;
+          const credited: PomodoroSnapshot = {
+            ...next,
+            currentSession: reachedLongBreak ? 0 : state.currentSession + 1,
+            completedSessions: state.completedSessions + 1,
+            totalFocusSeconds: state.totalFocusSeconds + focusedSeconds,
+            lastFocusSeconds: focusedSeconds,
+          };
+          update(credited);
+          // Fire-and-forget: record the credited focus time for cross-device sync.
+          syncPomodoroSession(focusedSeconds).catch(() => {});
+          return;
+        }
+      }
       update(next);
     },
     skip: () => finish(),

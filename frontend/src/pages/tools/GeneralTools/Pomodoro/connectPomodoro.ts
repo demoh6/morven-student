@@ -13,7 +13,7 @@
 
 import { usePomodoroStore, type PomodoroSettings } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { submitPomodoroSession, listGroups } from '@/services/groupApi';
-import { emitFocusingState } from '@/services/socketService';
+import { emitFocusingState, onSocketReconnect } from '@/services/socketService';
 
 // ---------------------------------------------------------------------------
 // Group association state (kept for backward-compat with GroupDetailPage).
@@ -117,6 +117,13 @@ function generateSessionId(settings: PomodoroSettings): string {
 let lastCompletedSessions = 0;
 let lastFocusing = false;
 
+// Reconnect + periodic re-ack machinery so an active focusing state is never
+// left invisible to Connect (e.g. when the initial emit was dropped, the token
+// was briefly unavailable, or the socket reconnected mid-session).
+const FOCUSING_REACK_INTERVAL_MS = 15_000;
+let reconnectUnsub: (() => void) | null = null;
+let focusingReackInterval: ReturnType<typeof setInterval> | null = null;
+
 export async function submitSessionToAllGroups(state: ReturnType<typeof usePomodoroStore.getState>) {
   const settings = state.settings;
   // Count Up has no fixed duration: credit what was actually counted up (the
@@ -177,6 +184,20 @@ export function startCompletionPolling() {
       void submitSessionToAllGroups(state);
     }
   }, 2000);
+
+  // Re-assert the current focusing state every time the socket (re)connects so
+  // a running Pomodoro restored from localStorage registers itself with Connect
+  // even if the initial focusing event was missed.
+  reconnectUnsub = onSocketReconnect(() => {
+    if (lastFocusing) emitFocusingState(true);
+  });
+
+  // Lightweight periodic re-ack alongside the 15s presence heartbeat: repairs
+  // a lost focusing event within seconds. No-op (no emission) whenever the user
+  // is not actively focusing, so it never spams the server.
+  focusingReackInterval = setInterval(() => {
+    if (lastFocusing) emitFocusingState(true);
+  }, FOCUSING_REACK_INTERVAL_MS);
 }
 
 export function stopCompletionPolling() {
@@ -187,5 +208,13 @@ export function stopCompletionPolling() {
   if (unsubFocusing) {
     unsubFocusing();
     unsubFocusing = null;
+  }
+  if (focusingReackInterval) {
+    clearInterval(focusingReackInterval);
+    focusingReackInterval = null;
+  }
+  if (reconnectUnsub) {
+    reconnectUnsub();
+    reconnectUnsub = null;
   }
 }

@@ -277,6 +277,60 @@ function PomodoroTimer() {
   }, [fullscreen.isFullscreen]);
 
   const showHours = hasClockHours(timeRemaining);
+  // Controls auto-hide: while the Pomodoro runs, the action buttons stay visible
+  // for 5s and reappear on any mouse/touch/pointer interaction; they are always
+  // visible when the timer is paused or stopped.
+  const isRunningRef = useRef(isRunning);
+  const hideControlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  const scheduleControlsHide = useCallback(() => {
+    if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
+    hideControlsTimerRef.current = setTimeout(() => {
+      hideControlsTimerRef.current = null;
+      if (isRunningRef.current) setControlsVisible(false);
+    }, 5000);
+  }, []);
+
+  const pokeControls = useCallback(() => {
+    if (!isRunningRef.current) return;
+    scheduleControlsHide();
+    setControlsVisible(true);
+  }, [scheduleControlsHide]);
+
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+    if (isRunning) {
+      // Freshly started session: keep the controls visible for the first 5s.
+      setControlsVisible(true);
+      scheduleControlsHide();
+    } else {
+      // Not running (paused or stopped): controls stay visible, no auto-hide.
+      if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
+      hideControlsTimerRef.current = null;
+      setControlsVisible(true);
+    }
+    return () => {
+      if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
+      hideControlsTimerRef.current = null;
+    };
+  }, [isRunning, scheduleControlsHide]);
+
+  // Any interaction while running re-shows the controls and restarts the 5s
+  // inactivity countdown. Listeners are removed when the component unmounts.
+  useEffect(() => {
+    const onInteraction = () => pokeControls();
+    window.addEventListener('pointermove', onInteraction);
+    window.addEventListener('pointerdown', onInteraction);
+    window.addEventListener('touchstart', onInteraction);
+    return () => {
+      window.removeEventListener('pointermove', onInteraction);
+      window.removeEventListener('pointerdown', onInteraction);
+      window.removeEventListener('touchstart', onInteraction);
+    };
+  }, [pokeControls]);
+
+  const controlsShown = !isRunning || controlsVisible;
   // Count Up has no target duration, so its progress area stays empty (0%).
   const progress = isCountUp ? 0 : totalDuration > 0 ? ((totalDuration - timeRemaining) / totalDuration) * 100 : 0;
   const modeColor = modeColors[currentMode];
@@ -491,12 +545,13 @@ function PomodoroTimer() {
       )}
 
       {/* Controls */}
-      <motion.div
-        className="flex items-center gap-3 flex-wrap justify-center"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
+      <div className={controlsShown ? '' : 'opacity-0 pointer-events-none'}>
+        <motion.div
+          className="flex items-center gap-3 flex-wrap justify-center"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
         {!isRunning && !isPaused && (
           <Button size="lg" onClick={start}>
             {'ابدأ'}
@@ -524,7 +579,8 @@ function PomodoroTimer() {
             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
           </svg>
         </Button>
-      </motion.div>
+        </motion.div>
+      </div>
 
       {/* Stats */}
       <motion.div
@@ -599,7 +655,7 @@ function PomodoroTimer() {
                 />
 
                 {/* Small timer controls under the numbers */}
-                <div className="mt-6 flex flex-wrap items-center justify-center gap-2 absolute left-0 right-0 bottom-40">
+                <div className={`mt-6 flex flex-wrap items-center justify-center gap-2 absolute left-0 right-0 bottom-40 ${controlsShown ? '' : 'opacity-0 pointer-events-none'}`}>
                   {!isRunning && !isPaused && (
                     <button
                       type="button"
@@ -677,7 +733,7 @@ function PomodoroTimer() {
                 </div>
 
                 {/* Same small timer controls as the digital mode */}
-                <div className="absolute left-0 right-0 bottom-40 flex flex-wrap items-center justify-center gap-2">
+                <div className={`absolute left-0 right-0 bottom-40 flex flex-wrap items-center justify-center gap-2 ${controlsShown ? '' : 'opacity-0 pointer-events-none'}`}>
                   {!isRunning && !isPaused && (
                     <button
                       type="button"
@@ -814,7 +870,7 @@ function PomodoroSettingsModal({
 
   return (
     <Modal open={open} onClose={onClose} title={'الإعدادات'} size="sm">
-      <div className="space-y-4">
+      <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-11rem)]">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             {'مظهر المؤقت'}

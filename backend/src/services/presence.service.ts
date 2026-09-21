@@ -32,7 +32,14 @@ const socketGroups = new Map<string, Set<string>>();
 let connectNsRef: Namespace | null = null;
 
 const HEARTBEAT_INTERVAL = 15_000;
-const STALE_TIMEOUT = 30_000;
+// A user stays Online in group presence as long as a heartbeat has been
+// received within this window. It is intentionally very generous (5 hours):
+// browsers throttle/suspend timers in backgrounded tabs (e.g. Chrome's
+// intensive throttling after ~5 min hidden can limit a 15s interval to once
+// per minute, and mobile OSes may suspend them entirely), so a tight timeout
+// would drop a user who is genuinely connected and mid-Pomodoro purely
+// because their tab is hidden. The Pomodoro is independent of this timeout.
+const STALE_TIMEOUT = 18_000_000; // 5 hours
 
 function toPresencePayload(entry: OnlineEntry, focusing: boolean) {
   return {
@@ -240,7 +247,34 @@ export function setupSocketIO(httpServer: HTTPServer) {
       const entry = onlineUsers.get(userId);
       if (entry) {
         entry.lastHeartbeat = Date.now();
+        return;
       }
+      // Self-healing: a socket that is STILL CONNECTED but whose online entry
+      // was purged by the stale-cleanup (e.g. the tab was backgrounded and the
+      // browser throttled/suspended timers past the stale window) regains its
+      // online presence on the next heartbeat — no reload/reconnect required.
+      onlineUsers.set(userId, {
+        userId,
+        username,
+        displayName,
+        avatarUrl: null,
+        socketCount: 1,
+        lastHeartbeat: Date.now(),
+      });
+      void prisma.profile
+        .findUnique({ where: { userId }, select: { avatarUrl: true } })
+        .then((profile) => {
+          const cur = onlineUsers.get(userId);
+          if (cur) cur.avatarUrl = profile?.avatarUrl ?? null;
+        })
+        .catch(() => {});
+      // Recompute presence for the groups this user belongs to so viewers see
+      // them online (and concentrating, if a Pomodoro is still running) again.
+      void userGroupIds(userId).then((groups) => {
+        for (const gid of groups) {
+          void pushGroupPresence(gid, connectNs);
+        }
+      });
     });
 
     // FOCUSING state is a user-level, transient signal. Broadcast it to every

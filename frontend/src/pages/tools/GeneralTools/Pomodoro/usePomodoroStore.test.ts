@@ -220,7 +220,7 @@ describe('Count Up timer behavior', () => {
     vi.useRealTimers();
   });
 
-  it('reset returns the Count Up timer to 00:00 and clears running/paused state', () => {
+  it('reset credits the counted-up time like Skip, then returns to 00:00 and clears running/paused state', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_700_000_000_000);
     const store = usePomodoroStore;
@@ -236,8 +236,10 @@ describe('Count Up timer behavior', () => {
     expect(s.isRunning).toBe(false);
     expect(s.isPaused).toBe(false);
     expect(s.endTimestamp).toBeNull();
-    expect(s.completedSessions).toBe(0);
-    expect(s.totalFocusSeconds).toBe(0);
+    expect(s.mode).toBe('focus');
+    expect(s.completedSessions).toBe(1);
+    expect(s.totalFocusSeconds).toBe(600);
+    expect(s.lastFocusSeconds).toBe(600);
 
     vi.useRealTimers();
   });
@@ -321,6 +323,82 @@ describe('Countdown timer behavior (unchanged)', () => {
     expect(s.isRunning).toBe(false);
     expect(s.timeRemaining).toBe(23 * 60);
     expect(s.endTimestamp).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('reset while running credits the actual elapsed focus time, then resets to the full focus duration', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const store = usePomodoroStore;
+
+    store.getState().start();
+    vi.setSystemTime(1_700_000_000_000 + 5 * 60 * 1000);
+    store.getState().tick();
+
+    store.getState().reset();
+    const s = store.getState();
+    expect(s.mode).toBe('focus');
+    expect(s.isRunning).toBe(false);
+    expect(s.isPaused).toBe(false);
+    expect(s.endTimestamp).toBeNull();
+    expect(s.timeRemaining).toBe(25 * 60);
+    expect(s.completedSessions).toBe(1);
+    expect(s.totalFocusSeconds).toBe(5 * 60);
+    expect(s.lastFocusSeconds).toBe(5 * 60);
+
+    vi.useRealTimers();
+  });
+
+  it('reset while paused credits the frozen elapsed focus time, then resets to the full focus duration', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const store = usePomodoroStore;
+
+    store.getState().start();
+    vi.setSystemTime(1_700_000_000_000 + 3 * 60 * 1000);
+    store.getState().pause();
+    expect(store.getState().isRunning).toBe(false);
+    expect(store.getState().timeRemaining).toBe(22 * 60);
+
+    store.getState().reset();
+    const s = store.getState();
+    expect(s.timeRemaining).toBe(25 * 60);
+    expect(s.completedSessions).toBe(1);
+    expect(s.totalFocusSeconds).toBe(3 * 60);
+    expect(s.lastFocusSeconds).toBe(3 * 60);
+
+    vi.useRealTimers();
+  });
+
+  it('reset on a fresh focus session records nothing', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const store = usePomodoroStore;
+
+    store.getState().reset();
+    const s = store.getState();
+    expect(s.timeRemaining).toBe(25 * 60);
+    expect(s.completedSessions).toBe(0);
+    expect(s.totalFocusSeconds).toBe(0);
+    expect(s.lastFocusSeconds).toBe(0);
+    expect(s.mode).toBe('focus');
+
+    vi.useRealTimers();
+  });
+
+  it('reset during a break records nothing', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const store = usePomodoroStore;
+    store.getState().setMode('break');
+
+    store.getState().reset();
+    const s = store.getState();
+    expect(s.mode).toBe('break');
+    expect(s.timeRemaining).toBe(5 * 60);
+    expect(s.completedSessions).toBe(0);
+    expect(s.totalFocusSeconds).toBe(0);
 
     vi.useRealTimers();
   });
