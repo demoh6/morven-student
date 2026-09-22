@@ -21,7 +21,7 @@ export const JERUSALEM_COORDS = {
 export const PRAYER_TIMEZONE = 'Asia/Hebron';
 
 /** Prayer Pause duration after a prayer begins (end-exclusive). */
-export const WINDOW_MINUTES = 15;
+export const WINDOW_MINUTES = 5;
 
 /**
  * Calculation configuration (Palestinian Ministry of Awqaf approximation):

@@ -300,7 +300,7 @@ export function formatPrayerTime(instant: Date, locale: string = DISPLAY_LOCALE)
   return getDisplayFormatter(locale).format(instant);
 }
 
-/** 15-minute half-open pause window for one prayer timing. */
+/** 5-minute half-open pause window for one prayer timing. */
 export function getWindowForPrayer(timing: PrayerTiming): PrayerWindow {
   return {
     id: timing.id,

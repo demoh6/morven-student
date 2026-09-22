@@ -47,7 +47,7 @@ const countdownFormatter = new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
 });
 
 /**
- * mm:ss in Western digits; window can never exceed 15 minutes.
+ * mm:ss in Western digits; window can never exceed 5 minutes.
  * Defense in depth: the store rejects malformed windows at its boundary, so
  * non-finite input is unreachable in normal operation — but this component
  * mounts at the app root and must never crash the whole application because
