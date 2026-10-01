@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import compression from 'vite-plugin-compression';
 import { VitePWA } from 'vite-plugin-pwa';
+import { MAINTENANCE_MODE } from './src/config/maintenance';
 import path from 'path';
 
 export default defineConfig({
@@ -49,7 +50,17 @@ export default defineConfig({
         clientsClaim: true,
         skipWaiting: true,
         globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff2,woff,ttf,otf,eot,webmanifest}'],
-        globIgnores: ['**/*.map', '**/*.gz', '**/sw.js'],
+        globIgnores: [
+          '**/*.map',
+          '**/*.gz',
+          '**/sw.js',
+          // While maintenance mode is on the app is tree-shaken out of the
+          // bundle, but Vite still emits the pdf.js worker asset because it is
+          // referenced through `new URL(..., import.meta.url)`. Keeping it out of
+          // the precache means visitors download a few hundred KB of shell
+          // instead of ~7 MB. Drop this entry when maintenance mode is turned off.
+          ...(MAINTENANCE_MODE ? ['**/pdf.worker-*.mjs'] : []),
+        ],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /\.js$/, /\.mjs$/],
         maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
