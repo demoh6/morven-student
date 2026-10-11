@@ -34,6 +34,10 @@ import { pushLocalRecordsUp, syncPomodoroSettings } from '@/services/syncService
 import { isPending } from '@/services/pendingCreate';
 import { openDB, FILE_STORE } from '@/services/db';
 import type { StoredFile } from '@/services/db';
+import { cacheClearScope } from '@/services/offlineCache';
+import { clearImageMemoryCache } from '@/services/imageCache';
+import { installConnectivity, flushQueue } from '@/services/connectivity';
+import { rehydrateNotificationStore } from '@/components/Layout/Header/Notification/useNotificationStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -158,6 +162,14 @@ function clearAccountScope(userId: string | null): void {
   }
   localStorage.removeItem(`morven:acct:${userId}:recentTools`);
   localStorage.removeItem(`morven:acct:${userId}:files`);
+  localStorage.removeItem(`morven:acct:${userId}:dismissedNotifications`);
+  // Drop the account's cached server responses so a different user on this
+  // device cannot read them while offline. Queued (unsynced) mutations are
+  // intentionally left intact — they are account-scoped and resume on re-login.
+  void cacheClearScope(`account:${userId}`);
+  // Also revoke any in-memory object URLs materialised from that account's
+  // cached image bytes so they can never be reused by a different account.
+  clearImageMemoryCache();
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +713,10 @@ function rehydrateAllStores(): void {
   try {
     usePomodoroStore.setState(loadCurrentPomodoroSnapshot());
   } catch { /* noop */ }
+
+  // Notification store is account-scoped: clear in-memory list and re-read the
+  // current scope's dismissed ids so account data never leaks across users.
+  try { rehydrateNotificationStore(); } catch { /* noop */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -769,6 +785,9 @@ async function applyAccount(userId: string): Promise<void> {
     // 3. Push local-only records up (offline-created, or create-sync that
     //    failed). Idempotent via clientId; replaces local id with server id.
     await pushLocalRecordsUp().catch(() => {});
+
+    // 4. Replay any durable offline mutations queued for THIS account.
+    await flushQueue();
   } finally {
     // 3. Rehydrate in-memory stores to the new scope — MUST run even if a
     //    server/IDB call threw, so the authenticated scope is always the
@@ -831,6 +850,7 @@ export async function refreshAccountData(): Promise<void> {
   try {
     await hydrateFromServer();
     await pushLocalRecordsUp().catch(() => {});
+    await flushQueue();
   } finally {
     rehydrateAllStores();
     refreshInFlight = false;
@@ -905,6 +925,7 @@ export function bootstrapSession(): void {
   bootstrapped = true;
 
   installRefocusListener();
+  installConnectivity();
 
   // Handle the state AFTER initialize() resolves.
   useAuthStore.subscribe((state, prev) => {

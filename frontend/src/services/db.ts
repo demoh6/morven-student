@@ -1,8 +1,12 @@
 import { getScopeKind, getScopeUserId } from '@/storage/scope';
 
 const DB_NAME = 'morven-storage';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const FILE_STORE = 'files';
+/** Account-scoped offline read cache (server responses we can serve offline). */
+const CACHE_STORE = 'cache';
+/** Account-scoped durable queue of mutations awaiting sync to the server. */
+const MUTATION_STORE = 'mutations';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -23,7 +27,7 @@ function openDB(): Promise<IDBDatabase> {
             unique: false,
           });
         } else {
-          // v4 → v5: add scope index to existing store
+          // v4 → v5: add scope index to existing store (record-scoped file data).
           const store = request.transaction!.objectStore(FILE_STORE);
           if (!store.indexNames.contains('scope')) {
             store.createIndex('scope', 'scope', { unique: false });
@@ -35,6 +39,8 @@ function openDB(): Promise<IDBDatabase> {
           }
 
           // Assign scope='guest' to all records that lack the field (v4 data).
+          // Runs on any later upgrade too; the guard makes it a no-op once every
+          // record has a scope.
           const cursor = store.openCursor();
           cursor.onsuccess = () => {
             const c = cursor.result;
@@ -46,6 +52,23 @@ function openDB(): Promise<IDBDatabase> {
             }
             c.continue();
           };
+        }
+
+        // v5 → v6: account-scoped read cache.
+        if (!db.objectStoreNames.contains(CACHE_STORE)) {
+          const cacheStore = db.createObjectStore(CACHE_STORE, { keyPath: 'id' });
+          cacheStore.createIndex('scope', 'scope', { unique: false });
+        }
+
+        // v5 → v6: account-scoped durable mutation queue.
+        if (!db.objectStoreNames.contains(MUTATION_STORE)) {
+          const mutationStore = db.createObjectStore(MUTATION_STORE, {
+            keyPath: 'id',
+          });
+          mutationStore.createIndex('scope', 'scope', { unique: false });
+          mutationStore.createIndex('scopeType', ['scope', 'type'], {
+            unique: false,
+          });
         }
       };
 
@@ -79,4 +102,34 @@ export interface StoredFile {
   remoteOnly?: boolean;
 }
 
-export { openDB, FILE_STORE };
+/**
+ * A cached server response, partitioned by account scope so one account's
+ * cached data can never be read under another. `id` is `${scope}::${key}`.
+ */
+export interface CacheRecord {
+  id: string;
+  scope: string;
+  key: string;
+  value: unknown;
+  updatedAt: number;
+  expiresAt: number | null;
+}
+
+/**
+ * A durable, account-scoped mutation waiting to be replayed to the server.
+ * `scope` always takes the form `account:<userId>` — queued work is never
+ * replayed under a different account.
+ */
+export interface MutationRecord {
+  id: string;
+  scope: string;
+  type: string;
+  payload: unknown;
+  idempotencyKey: string;
+  createdAt: number;
+  attempts: number;
+  nextAttemptAt: number;
+  lastError: string | null;
+}
+
+export { openDB, FILE_STORE, CACHE_STORE, MUTATION_STORE };

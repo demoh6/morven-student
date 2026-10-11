@@ -7,6 +7,9 @@ import { Badge } from '@/components/UI/Badge';
 import { Modal } from '@/components/UI/Modal';
 import { Avatar } from '@/pages/connect/Avatar';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole } from '@/pages/auth/roles';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 import {
   listSuggestions,
   deleteSuggestion,
@@ -36,6 +39,7 @@ const formatDate = (value: string) => {
 
 export default function AdminSuggestionsPage() {
   const addNotification = useAppStore((s) => s.addNotification);
+  const currentUser = useAuthStore((s) => s.user);
   const [suggestions, setSuggestions] = useState<AdminSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +52,18 @@ export default function AdminSuggestionsPage() {
     try {
       const data = await listSuggestions();
       setSuggestions(data);
+      void cacheSet('admin:suggestions', data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      // Only a currently-authorized admin may see cached suggestions offline.
+      const cached = isAdminRole(currentUser?.role)
+        ? await cacheGet<AdminSuggestion[]>('admin:suggestions', { allowStale: true })
+        : null;
+      if (cached) setSuggestions(cached.value);
+      else setError(err instanceof Error ? err.message : 'حدث خطأ');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser?.role]);
 
   useEffect(() => {
     loadSuggestions();

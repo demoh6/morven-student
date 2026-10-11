@@ -7,6 +7,7 @@ import { Modal } from '@/components/UI/Modal';
 import { EmptyState } from '@/components/UI/EmptyState';
 import { StudyGroupCard } from '@/pages/connect/Groups/StudyGroupCard';
 import { listGroups, createGroup, joinGroup, type Group } from '@/services/groupApi';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 import { Users, Plus, LogIn, ChevronLeft, ImagePlus, X } from 'lucide-react';
 
 const fadeUp = {
@@ -37,8 +38,16 @@ export default function GroupsPage() {
     try {
       const { groups: g } = await listGroups();
       setGroups(g);
+      void cacheSet('groups:list', g);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      // Offline / unreachable — serve the last cached list if we have one.
+      const cached = await cacheGet<Group[]>('groups:list', { allowStale: true });
+      if (cached) {
+        setGroups(cached.value);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : 'حدث خطأ');
+      }
     } finally {
       setLoading(false);
     }

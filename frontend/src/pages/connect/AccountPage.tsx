@@ -4,10 +4,15 @@ import { motion } from 'framer-motion';
 import { Card } from '@/components/UI/Card';
 import { Button } from '@/components/UI/Button';
 import { Input, TextArea, Select } from '@/components/UI/Input';
+import { CachedImage } from '@/components/UI/CachedImage';
 import { getOwnProfile, updateOwnProfile, uploadAvatar, removeAvatar, type OwnProfile } from '@/services/profileApi';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { enqueueMutation, isRetryableError } from '@/services/offlineQueue';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
-import { API_BASE } from '@/services/apiBase';
 import { ChevronLeft, User, Shield, LogOut, Camera, Trash2, Check, X } from 'lucide-react';
+
+const PROFILE_CACHE_KEY = 'profile:own';
+const PROFILE_UPDATE_KEY = 'profile:update';
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -34,15 +39,27 @@ export default function AccountPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const { profile: p } = await getOwnProfile();
-        if (cancelled) return;
+      const apply = (p: OwnProfile) => {
         setProfile(p);
         setDisplayName(p.displayName);
         setBio(p.bio || '');
         setIsPublic(p.isPublic);
+      };
+      try {
+        const { profile: p } = await getOwnProfile();
+        if (cancelled) return;
+        apply(p);
+        void cacheSet(PROFILE_CACHE_KEY, p);
       } catch (err) {
-        if (!cancelled) {
+        // Offline / unreachable — fall back to the last cached profile so the
+        // account settings page still renders instead of erroring out.
+        const cached = await cacheGet<OwnProfile>(PROFILE_CACHE_KEY, {
+          allowStale: true,
+        });
+        if (cancelled) return;
+        if (cached) {
+          apply(cached.value);
+        } else {
           setError(err instanceof Error ? err.message : 'حدث خطأ');
         }
       } finally {
@@ -63,17 +80,38 @@ export default function AccountPage() {
     setSaving(true);
     setError(null);
     setSuccess(false);
+    const input = {
+      displayName,
+      bio: bio || undefined,
+      isPublic,
+    };
     try {
-      const { profile: updated } = await updateOwnProfile({
-        displayName,
-        bio: bio || undefined,
-        isPublic,
-      });
+      const { profile: updated } = await updateOwnProfile(input);
       setProfile(updated);
+      void cacheSet(PROFILE_CACHE_KEY, updated);
       setSuccess(true);
       successTimer.current = setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      if (isRetryableError(err)) {
+        // Offline — queue the update (last-write-wins) and reflect it locally.
+        const optimistic = profile
+          ? { ...profile, displayName, bio: bio || null, isPublic }
+          : profile;
+        if (optimistic) {
+          setProfile(optimistic);
+          void cacheSet(PROFILE_CACHE_KEY, optimistic);
+        }
+        void enqueueMutation({
+          type: 'profile.update',
+          payload: input,
+          idempotencyKey: PROFILE_UPDATE_KEY,
+          replace: true,
+        });
+        setSuccess(true);
+        successTimer.current = setTimeout(() => setSuccess(false), 3000);
+      } else {
+        setError(err instanceof Error ? err.message : 'حدث خطأ');
+      }
     } finally {
       setSaving(false);
     }
@@ -100,7 +138,12 @@ export default function AccountPage() {
     setError(null);
     try {
       const { avatarUrl } = await uploadAvatar(pendingFile);
-      setProfile((prev) => prev ? { ...prev, avatarUrl } : prev);
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, avatarUrl };
+        void cacheSet(PROFILE_CACHE_KEY, next);
+        return next;
+      });
       setAvatarUrl(avatarUrl);
       setAvatarPreview(null);
       setPendingFile(null);
@@ -124,7 +167,12 @@ export default function AccountPage() {
     setError(null);
     try {
       await removeAvatar();
-      setProfile((prev) => prev ? { ...prev, avatarUrl: null } : prev);
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, avatarUrl: null };
+        void cacheSet(PROFILE_CACHE_KEY, next);
+        return next;
+      });
       setAvatarUrl(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ');
@@ -184,16 +232,17 @@ export default function AccountPage() {
                     alt="معاينة"
                     className="w-24 h-24 rounded-full object-cover border-3 border-primary-400 dark:border-primary-500"
                   />
-                ) : profile?.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl.startsWith('http') ? profile.avatarUrl : `${API_BASE}${profile.avatarUrl}`}
-                    alt={profile.displayName}
-                    className="w-24 h-24 rounded-full object-cover border-3 border-light-border dark:border-dark-border"
-                  />
                 ) : (
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-emerald-500 text-white shadow-lg shadow-primary-500/20 flex items-center justify-center text-4xl font-bold">
-                    {profile?.displayName?.charAt(0) || user?.displayName?.charAt(0) || 'م'}
-                  </div>
+                  <CachedImage
+                    src={profile?.avatarUrl}
+                    alt={profile?.displayName || 'الصورة الشخصية'}
+                    className="w-24 h-24 rounded-full object-cover border-3 border-light-border dark:border-dark-border"
+                    fallback={
+                      <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-emerald-500 text-white shadow-lg shadow-primary-500/20 flex items-center justify-center text-4xl font-bold">
+                        {profile?.displayName?.charAt(0) || user?.displayName?.charAt(0) || 'م'}
+                      </div>
+                    }
+                  />
                 )}
               </div>
 

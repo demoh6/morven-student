@@ -15,6 +15,7 @@ import {
   type GroupDetails,
   type LeaderboardEntry,
 } from '@/services/groupApi';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 import {
   connectSocket,
   joinGroup,
@@ -25,6 +26,7 @@ import {
   type PresenceUser,
 } from '@/services/socketService';
 import { GroupMemberRow } from '@/pages/connect/Groups/GroupMemberRow';
+import { CachedImage } from '@/components/UI/CachedImage';
 import { setActiveGroupId } from '@/pages/tools/GeneralTools/Pomodoro/connectPomodoro';
 import { usePomodoroStore } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
@@ -48,6 +50,8 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.3 },
 };
+
+const groupDetailKey = (id: string) => `groups:detail:${id}`;
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -86,8 +90,14 @@ export default function GroupDetailPage() {
       try {
         const { group: g } = await getGroupDetails(groupId);
         if (!cancelled) setGroup(g);
+        void cacheSet(groupDetailKey(groupId), g);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'حدث خطأ');
+        // Offline / unreachable — serve the last cached detail for this group.
+        const cached = await cacheGet<GroupDetails>(groupDetailKey(groupId), { allowStale: true });
+        if (!cancelled) {
+          if (cached) setGroup(cached.value);
+          else setError(err instanceof Error ? err.message : 'حدث خطأ');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -173,6 +183,7 @@ export default function GroupDetailPage() {
       });
       const { group: g } = await getGroupDetails(groupId);
       setGroup(g);
+      void cacheSet(groupDetailKey(groupId), g);
       setShowEdit(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ');
@@ -216,6 +227,7 @@ export default function GroupDetailPage() {
       await removeMember(groupId, confirmMemberId);
       const { group: g } = await getGroupDetails(groupId);
       setGroup(g);
+      void cacheSet(groupDetailKey(groupId), g);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ');
     } finally {
@@ -315,7 +327,12 @@ export default function GroupDetailPage() {
             <div className="flex items-start gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white shadow-md flex items-center justify-center shrink-0 overflow-hidden">
                 {groupImageUrl ? (
-                  <img src={groupImageUrl} alt={group.name} className="w-full h-full object-cover" />
+                  <CachedImage
+                    src={groupImageUrl}
+                    alt={group.name}
+                    className="w-full h-full object-cover"
+                    fallback={<Users className="w-7 h-7" />}
+                  />
                 ) : (
                   <Users className="w-7 h-7" />
                 )}

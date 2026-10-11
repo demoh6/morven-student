@@ -6,6 +6,9 @@ import { Badge } from '@/components/UI/Badge';
 import { Modal } from '@/components/UI/Modal';
 import { Avatar } from '@/pages/connect/Avatar';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/pages/auth/useAuthStore';
+import { isAdminRole } from '@/pages/auth/roles';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 import {
   listDhikrSubmissions,
   approveDhikrSubmission,
@@ -76,6 +79,7 @@ function useDuplicateCheck(submissions: AdminDhikrSubmission[]) {
 
 export default function AdminDhikrSubmissionsPage() {
   const addNotification = useAppStore((s) => s.addNotification);
+  const currentUser = useAuthStore((s) => s.user);
   const [submissions, setSubmissions] = useState<AdminDhikrSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +94,18 @@ export default function AdminDhikrSubmissionsPage() {
     try {
       const data = await listDhikrSubmissions();
       setSubmissions(data);
+      void cacheSet('admin:dhikrSubmissions', data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      // Only a currently-authorized admin may see the review queue offline.
+      const cached = isAdminRole(currentUser?.role)
+        ? await cacheGet<AdminDhikrSubmission[]>('admin:dhikrSubmissions', { allowStale: true })
+        : null;
+      if (cached) setSubmissions(cached.value);
+      else setError(err instanceof Error ? err.message : 'حدث خطأ');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser?.role]);
 
   useEffect(() => {
     load();

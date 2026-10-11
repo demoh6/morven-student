@@ -7,7 +7,8 @@ import { Badge } from '@/components/UI/Badge';
 import { Avatar } from '@/pages/connect/Avatar';
 import { listUsers, updateUserRole, type AdminUser } from '@/pages/admin/adminApi';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
-import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER } from '@/pages/auth/roles';
+import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER, isAdminRole } from '@/pages/auth/roles';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 import { ChevronLeft, Shield, User, RefreshCw } from 'lucide-react';
 
 const fadeUp = {
@@ -37,12 +38,18 @@ export default function AdminUsersPage() {
     try {
       const data = await listUsers();
       setUsers(data);
+      void cacheSet('admin:users', data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      // Only a currently-authorized admin may see cached admin data offline.
+      const cached = isAdminRole(currentUser?.role)
+        ? await cacheGet<AdminUser[]>('admin:users', { allowStale: true })
+        : null;
+      if (cached) setUsers(cached.value);
+      else setError(err instanceof Error ? err.message : 'حدث خطأ');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser?.role]);
 
   useEffect(() => {
     loadUsers();

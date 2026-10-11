@@ -194,7 +194,15 @@ export async function authRequest<T>(
   const data = await res.json();
 
   if (!res.ok) {
-    throw new Error(data.error || 'حدث خطأ غير متوقع');
+    const error = new Error(data.error || 'حدث خطأ غير متوقع') as Error & { code?: string; status?: number };
+    // Attach the HTTP status so callers can distinguish a CONFIRMED server
+    // rejection (4xx — never retried) from a transient failure (5xx) or a
+    // connectivity failure (no status), which the offline queue retries.
+    error.status = res.status;
+    if (typeof data.code === 'string' && data.code) {
+      error.code = data.code;
+    }
+    throw error;
   }
 
   return data as T;

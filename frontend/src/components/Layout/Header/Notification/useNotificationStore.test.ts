@@ -89,7 +89,7 @@ describe('useNotificationStore.dismissNotification', () => {
 
     useNotificationStore.getState().dismissNotification('n1');
 
-    const stored = JSON.parse(localStorage.getItem('morven:dismissedNotifications')!);
+    const stored = JSON.parse(localStorage.getItem('morven:guest:dismissedNotifications')!);
     expect(stored).toContain('n1');
   });
 });

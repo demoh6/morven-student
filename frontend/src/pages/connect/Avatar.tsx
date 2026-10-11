@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { API_BASE } from '@/services/apiBase';
+import { useImageResource } from '@/hooks/useImageResource';
 
 type AvatarProps = {
   src: string | null | undefined;
@@ -15,18 +14,25 @@ const sizeClasses = {
 };
 
 export function Avatar({ src, name, size = 'md', className = '' }: AvatarProps) {
-  const [imgError, setImgError] = useState(false);
+  const {
+    src: resolved,
+    fallback: useFallback,
+    reloadKey,
+    onLoad,
+    onError,
+  } = useImageResource(src);
   const fallback = name?.charAt(0) || 'م';
   const classes = `bg-gradient-to-br from-primary-500 to-emerald-500 text-white shadow-md flex items-center justify-center font-bold shrink-0 ${sizeClasses[size]} ${className}`;
 
-  if (src && !imgError) {
-    const url = src.startsWith('http') ? src : `${API_BASE}${src}`;
+  if (resolved && !useFallback) {
     return (
       <img
-        src={url}
+        key={reloadKey}
+        src={resolved}
         alt={name}
         className={`object-cover shrink-0 ${sizeClasses[size]} ${className}`}
-        onError={() => setImgError(true)}
+        onLoad={onLoad}
+        onError={onError}
       />
     );
   }

@@ -16,6 +16,7 @@ import {
   addResourceLinkApi,
   deleteResourceLinkApi,
 } from '@/pages/connect/Resources/resourceApi';
+import { cacheGet, cacheSet } from '@/services/offlineCache';
 
 export interface ResourceFile {
   id: string;
@@ -83,10 +84,19 @@ interface ResourcesStore {
 
 const emptyContent: ResourceContent = { files: [], notes: [], links: [] };
 
+const RES_LIST_KEY = 'resources:list';
+const resDetailKey = (id: string) => `resources:detail:${id}`;
+
+type ResourceDetail = Resource & {
+  files: ResourceFile[];
+  notes: ResourceNote[];
+  links: ResourceLink[];
+};
+
 function upsertInStore(
   resources: Resource[],
   contentMap: Record<string, ResourceContent>,
-  detail: Resource & { files: ResourceFile[]; notes: ResourceNote[]; links: ResourceLink[] },
+  detail: ResourceDetail,
 ) {
   const { files, notes, links, ...base } = detail;
   return {
@@ -112,11 +122,20 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
     try {
       const resources = await getResources();
       set({ resources, loading: false });
+      void cacheSet(RES_LIST_KEY, resources);
     } catch (err) {
-      set({
-        loading: false,
-        error: err instanceof Error ? err.message : 'حدث خطأ في جلب الموارد',
+      // Offline / unreachable — serve the last cached list (even if stale).
+      const cached = await cacheGet<Resource[]>(RES_LIST_KEY, {
+        allowStale: true,
       });
+      if (cached) {
+        set({ resources: cached.value, loading: false, error: null });
+      } else {
+        set({
+          loading: false,
+          error: err instanceof Error ? err.message : 'حدث خطأ في جلب الموارد',
+        });
+      }
     }
   },
 
@@ -129,12 +148,26 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
         lockedResourceId: null,
         ...upsertInStore(s.resources, s.contentMap, detail),
       }));
+      void cacheSet(resDetailKey(id), detail);
       const { files, notes, links, ...base } = detail;
       return base;
     } catch (err) {
       if ((err as { code?: string }).code === 'PRIVATE_RESOURCE') {
         set({ loading: false, error: null, lockedResourceId: id });
         return undefined;
+      }
+      // Offline / unreachable — serve the last cached detail for this resource.
+      const cached = await cacheGet<ResourceDetail>(resDetailKey(id), {
+        allowStale: true,
+      });
+      if (cached) {
+        set((s) => ({
+          loading: false,
+          error: null,
+          ...upsertInStore(s.resources, s.contentMap, cached.value),
+        }));
+        const { files, notes, links, ...base } = cached.value;
+        return base;
       }
       set({
         loading: false,
@@ -150,6 +183,7 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
       resources: [resource, ...s.resources],
       contentMap: { ...s.contentMap, [resource.id]: emptyContent },
     }));
+    void cacheSet(RES_LIST_KEY, get().resources);
     return resource;
   },
 
@@ -158,6 +192,7 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
     set((s) => ({
       resources: s.resources.map((r) => (r.id === id ? resource : r)),
     }));
+    void cacheSet(RES_LIST_KEY, get().resources);
   },
 
   deleteResource: async (id) => {
@@ -170,6 +205,7 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
         contentMap,
       };
     });
+    void cacheSet(RES_LIST_KEY, get().resources);
   },
 
   unlockResource: async (id, code) => {

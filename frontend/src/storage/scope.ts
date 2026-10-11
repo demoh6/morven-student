@@ -35,6 +35,21 @@ export function setScopeToGuest(): void {
   localStorage.setItem(SCOPE_KEY, 'guest');
 }
 
+/**
+ * The canonical scope string used by IndexedDB-backed stores (files, cache,
+ * mutation queue): `'guest'` or `'account:<userId>'`. Mirrors the localStorage
+ * key partitioning so account-scoped data is never read across accounts.
+ */
+export function currentScopeString(): string {
+  const raw = readScopeString();
+  return raw === 'guest' ? 'guest' : `account:${raw.slice('account:'.length)}`;
+}
+
+/** The scope string for a specific account id (used when targeting by user). */
+export function scopeStringForUser(userId: string): string {
+  return `account:${userId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Scoped key mapping
 //
