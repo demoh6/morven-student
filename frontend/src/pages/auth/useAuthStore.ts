@@ -73,9 +73,13 @@ export const useAuthStore = create(
             }
             try {
               const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-              if (isOffline && state.hasPersistedSession && state.user) {
+              if (isOffline) {
                 api.setAccessToken(null);
-                set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
+                if (state.user) {
+                  set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
+                } else {
+                  set({ initialized: true, loading: false });
+                }
                 return;
               }
               const result = await api.refresh();
@@ -87,7 +91,7 @@ export const useAuthStore = create(
               });
             } catch (err) {
               const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-              if (isOffline && state.hasPersistedSession && state.user) {
+              if (isOffline && state.user) {
                 api.setAccessToken(null);
                 set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
                 return;
