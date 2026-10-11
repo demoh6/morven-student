@@ -51,7 +51,19 @@ export const useAuthStore = create(
           if (get().initialized) return Promise.resolve();
           const run = (async () => {
             set({ loading: true });
-            const state = get();
+            let state = get();
+            // Defensive: check localStorage directly in case rehydration hasn't completed yet
+            if ((!state.user || !state.hasPersistedSession) && typeof window !== 'undefined') {
+              try {
+                const raw = localStorage.getItem('morven-auth');
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (parsed?.state?.user && parsed?.state?.hasPersistedSession) {
+                    state = { ...state, user: parsed.state.user, hasPersistedSession: true };
+                  }
+                }
+              } catch {}
+            }
             // If user explicitly logged out, do not attempt to auto-restore session
             if (state.user && !state.hasPersistedSession) {
               // Explicit logout state - don't restore
@@ -63,7 +75,7 @@ export const useAuthStore = create(
               const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
               if (isOffline && state.hasPersistedSession && state.user) {
                 api.setAccessToken(null);
-                set({ initialized: true, loading: false });
+                set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
                 return;
               }
               const result = await api.refresh();
@@ -77,10 +89,12 @@ export const useAuthStore = create(
               const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
               if (isOffline && state.hasPersistedSession && state.user) {
                 api.setAccessToken(null);
-                set({ initialized: true, loading: false });
+                set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
+                return;
               } else {
                 api.setAccessToken(null);
                 set({ user: null, hasPersistedSession: false, initialized: true, loading: false });
+                return;
               }
             }
           })();
