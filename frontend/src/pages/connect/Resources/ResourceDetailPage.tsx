@@ -17,6 +17,7 @@ import {
 } from '@/pages/connect/Resources/useResourcesStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { canManageResource } from '@/pages/connect/Resources/resourcePermissions';
+import { userFacingMessage } from '@/services/apiError';
 import {
   BookOpen,
   ChevronLeft,
@@ -120,7 +121,7 @@ export default function ResourceDetailPage() {
         setEditIsPrivate(current.isPrivate);
       }
     } catch (err) {
-      setUnlockError(err instanceof Error ? err.message : 'حدث خطأ في فتح المورد');
+      setUnlockError(userFacingMessage(err, 'حدث خطأ في فتح المورد'));
     } finally {
       setUnlocking(false);
     }
@@ -218,7 +219,7 @@ export default function ResourceDetailPage() {
     try {
       await addFiles(r.id, selected.map((s) => s.file));
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في رفع الملفات');
+      setActionError(userFacingMessage(err, 'حدث خطأ في رفع الملفات'));
     }
   };
 
@@ -227,7 +228,7 @@ export default function ResourceDetailPage() {
     try {
       await downloadFile(r.id, f);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في التحميل');
+      setActionError(userFacingMessage(err, 'حدث خطأ في التحميل'));
     }
   };
 
@@ -237,7 +238,7 @@ export default function ResourceDetailPage() {
     try {
       await removeFile(r.id, f.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في حذف الملف');
+      setActionError(userFacingMessage(err, 'حدث خطأ في حذف الملف'));
     }
   };
 
@@ -251,7 +252,7 @@ export default function ResourceDetailPage() {
       setNoteContent('');
       setShowAddNote(false);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في إضافة الملاحظة');
+      setActionError(userFacingMessage(err, 'حدث خطأ في إضافة الملاحظة'));
     }
   };
 
@@ -261,7 +262,7 @@ export default function ResourceDetailPage() {
     try {
       await removeNote(r.id, n.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في حذف الملاحظة');
+      setActionError(userFacingMessage(err, 'حدث خطأ في حذف الملاحظة'));
     }
   };
 
@@ -277,7 +278,7 @@ export default function ResourceDetailPage() {
       setLinkUrl('');
       setShowAddLink(false);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في إضافة الرابط');
+      setActionError(userFacingMessage(err, 'حدث خطأ في إضافة الرابط'));
     }
   };
 
@@ -287,7 +288,7 @@ export default function ResourceDetailPage() {
     try {
       await removeLink(r.id, l.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في حذف الرابط');
+      setActionError(userFacingMessage(err, 'حدث خطأ في حذف الرابط'));
     }
   };
 
@@ -305,7 +306,7 @@ export default function ResourceDetailPage() {
       setShowEdit(false);
       await fetchResourceDetail(r.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في تعديل المورد');
+      setActionError(userFacingMessage(err, 'حدث خطأ في تعديل المورد'));
     }
   };
 
@@ -316,7 +317,7 @@ export default function ResourceDetailPage() {
       await deleteResource(r.id);
       navigate('/connect/resources');
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'حدث خطأ في حذف المورد');
+      setActionError(userFacingMessage(err, 'حدث خطأ في حذف المورد'));
     }
   };
 

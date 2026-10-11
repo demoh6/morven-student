@@ -1,4 +1,5 @@
 import { API_BASE } from '@/services/apiBase';
+import { toNetworkError, NETWORK_ERROR_MESSAGE } from '@/services/apiError';
 
 export interface AuthUser {
   id: string;
@@ -16,14 +17,21 @@ interface AuthResponse {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<{ data: T; res: Response }> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    });
+  } catch (err) {
+    // Connectivity/timeout/abort — never surface the raw engine error
+    // ("Failed to fetch") to the user; callers render `err.message`.
+    throw toNetworkError(NETWORK_ERROR_MESSAGE, err);
+  }
 
   const data = await res.json();
 
@@ -159,12 +167,20 @@ export async function authedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const perform = (): Promise<Response> =>
-    fetch(input, {
-      ...init,
-      credentials: 'include',
-      headers: buildAuthHeaders(init.headers),
-    });
+  const perform = async (): Promise<Response> => {
+    try {
+      return await fetch(input, {
+        ...init,
+        credentials: 'include',
+        headers: buildAuthHeaders(init.headers),
+      });
+    } catch (err) {
+      // Connectivity/timeout/abort — normalise so the UI never shows the raw
+      // engine error ("Failed to fetch"). No `status`, so it is classified as
+      // transient/retryable everywhere else (never an auth failure).
+      throw toNetworkError(NETWORK_ERROR_MESSAGE, err);
+    }
+  };
 
   try {
     let res = await perform();

@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/UI/EmptyState';
 import { StudyGroupCard } from '@/pages/connect/Groups/StudyGroupCard';
 import { listGroups, createGroup, joinGroup, type Group } from '@/services/groupApi';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { userFacingMessage } from '@/services/apiError';
 import { Users, Plus, LogIn, ChevronLeft, ImagePlus, X } from 'lucide-react';
 
 const fadeUp = {
@@ -46,7 +47,7 @@ export default function GroupsPage() {
         setGroups(cached.value);
         setError(null);
       } else {
-        setError(err instanceof Error ? err.message : 'حدث خطأ');
+        setError(userFacingMessage(err, 'حدث خطأ'));
       }
     } finally {
       setLoading(false);
@@ -68,7 +69,7 @@ export default function GroupsPage() {
       setShowCreate(false);
       await loadGroups();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setSaving(false);
     }
@@ -84,7 +85,7 @@ export default function GroupsPage() {
       setShowJoin(false);
       await loadGroups();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setSaving(false);
     }

@@ -55,6 +55,20 @@ describe('offlineCache — account-scoped read cache', () => {
     expect((await cache.cacheGet<string[]>('groups'))?.value).toEqual(['a-group']);
   });
 
+  it("isolates a cached group's details between accounts", async () => {
+    setScopeToAccount('u1');
+    await cache.cacheSet('groups:detail:g1', { id: 'g1', name: 'Alpha' });
+
+    setScopeToAccount('u2');
+    expect(await cache.cacheGet('groups:detail:g1')).toBeNull();
+
+    setScopeToAccount('u1');
+    expect((await cache.cacheGet<{ id: string }>('groups:detail:g1'))?.value).toEqual({
+      id: 'g1',
+      name: 'Alpha',
+    });
+  });
+
   it('expires entries past their TTL but serves them when allowStale is set', async () => {
     const now = Date.now();
     fake.seed('cache', {

@@ -4,6 +4,7 @@ import { useNotificationStore, type Notification } from '@/components/Layout/Hea
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { isAdminRole } from '@/pages/auth/roles';
 import { useAppStore } from '@/store/useAppStore';
+import { userFacingMessage } from '@/services/apiError';
 import { Bell, Megaphone, RefreshCw, Info, X, Plus, Trash2 } from 'lucide-react';
 
 function typeIcon(type: Notification['type']) {
@@ -77,7 +78,7 @@ export function NotificationsPanel({ open, onClose }: NotificationsPanelProps) {
       setShowCreate(false);
       addToast('تمت إضافة الإشعار بنجاح', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'حدث خطأ في إضافة الإشعار', 'error');
+      addToast(userFacingMessage(err, 'حدث خطأ في إضافة الإشعار'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -89,7 +90,7 @@ export function NotificationsPanel({ open, onClose }: NotificationsPanelProps) {
       await deleteNotification(id);
       addToast('تم حذف الإشعار بنجاح', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'حدث خطأ في حذف الإشعار', 'error');
+      addToast(userFacingMessage(err, 'حدث خطأ في حذف الإشعار'), 'error');
     } finally {
       setDeletingId(null);
     }

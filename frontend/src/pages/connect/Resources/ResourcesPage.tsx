@@ -16,6 +16,7 @@ import {
   type ResourceType,
 } from '@/pages/connect/Resources/resources';
 import { useResourcesStore } from '@/pages/connect/Resources/useResourcesStore';
+import { userFacingMessage } from '@/services/apiError';
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -105,7 +106,7 @@ export default function ResourcesPage() {
       setIsPrivate(false);
       setShowCreate(false);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'حدث خطأ في إنشاء المورد');
+      setCreateError(userFacingMessage(err, 'حدث خطأ في إنشاء المورد'));
     } finally {
       setSaving(false);
     }
@@ -121,7 +122,7 @@ export default function ResourcesPage() {
       setBindCode('');
       setShowAddByCode(false);
     } catch (err) {
-      setBindError(err instanceof Error ? err.message : 'حدث خطأ في إضافة المورد');
+      setBindError(userFacingMessage(err, 'حدث خطأ في إضافة المورد'));
     } finally {
       setBinding(false);
     }

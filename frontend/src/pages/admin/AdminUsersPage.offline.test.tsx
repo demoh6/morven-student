@@ -16,6 +16,7 @@ vi.mock('@/pages/auth/useAuthStore', () => ({
 }));
 
 import AdminUsersPage from '@/pages/admin/AdminUsersPage';
+import { NETWORK_ERROR_MESSAGE } from '@/services/apiError';
 
 const cachedUser = {
   id: 'u1',
@@ -56,7 +57,7 @@ describe('AdminUsersPage — role-gated offline cache', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Failed to fetch')).toBeTruthy();
+    expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
     expect(cache.cacheGet).not.toHaveBeenCalled();
   });
 });

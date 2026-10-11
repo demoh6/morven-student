@@ -9,6 +9,7 @@ import {
 } from '@/services/syncService';
 import { replaceRecordId } from '@/services/syncService';
 import { addPendingId, removePendingId } from '@/services/pendingCreate';
+import { normalizeUserMessage } from '@/services/apiError';
 
 interface AppStore {
   // Sidebar
@@ -88,7 +89,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   notifications: [],
   addNotification: (message, type, duration = 3000) => {
     const id = uuid();
-    set((s) => ({ notifications: [...s.notifications, { id, message, type, duration }] }));
+    const safeMessage = normalizeUserMessage(message);
+    set((s) => ({ notifications: [...s.notifications, { id, message: safeMessage, type, duration }] }));
     setTimeout(() => get().removeNotification(id), duration);
   },
   removeNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),

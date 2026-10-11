@@ -17,6 +17,7 @@ import {
   deleteResourceLinkApi,
 } from '@/pages/connect/Resources/resourceApi';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { userFacingMessage } from '@/services/apiError';
 
 export interface ResourceFile {
   id: string;
@@ -133,7 +134,7 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
       } else {
         set({
           loading: false,
-          error: err instanceof Error ? err.message : 'حدث خطأ في جلب الموارد',
+          error: userFacingMessage(err, 'حدث خطأ في جلب الموارد'),
         });
       }
     }
@@ -171,7 +172,7 @@ export const useResourcesStore = create<ResourcesStore>((set, get) => ({
       }
       set({
         loading: false,
-        error: err instanceof Error ? err.message : 'حدث خطأ في جلب المورد',
+        error: userFacingMessage(err, 'حدث خطأ في جلب المورد'),
       });
       return undefined;
     }

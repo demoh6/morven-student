@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { refresh } from './authApi';
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from '@/services/apiError';
 
 /**
  * The auth store classifies refresh failures by `status`. These tests pin the
@@ -49,7 +50,10 @@ describe('authApi error classification metadata', () => {
     } catch (err) {
       caught = err;
     }
-    expect(caught).toBeInstanceOf(TypeError);
+    // Normalised into a connectivity error (never the raw engine string) with
+    // no HTTP status, so it can never be read as an invalid session.
+    expect(isNetworkError(caught)).toBe(true);
+    expect((caught as { message?: unknown }).message).toBe(NETWORK_ERROR_MESSAGE);
     expect((caught as { status?: unknown }).status).toBeUndefined();
   });
 });

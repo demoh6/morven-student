@@ -11,6 +11,7 @@ import {
   type AchievementCounters,
 } from '@/services/profileApi';
 import AchievementMetricsGrid from '@/pages/Dashboard/Achievements/AchievementMetricsGrid';
+import { userFacingMessage } from '@/services/apiError';
 import { ChevronLeft, Shield, Trophy } from 'lucide-react';
 
 const fadeUp = {
@@ -57,7 +58,7 @@ export default function PublicProfilePage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'حدث خطأ');
+          setError(userFacingMessage(err, 'حدث خطأ'));
         }
       } finally {
         if (!cancelled) setLoading(false);

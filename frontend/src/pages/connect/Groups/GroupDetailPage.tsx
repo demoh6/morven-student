@@ -16,6 +16,7 @@ import {
   type LeaderboardEntry,
 } from '@/services/groupApi';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { isNetworkFailure, userFacingMessage, OFFLINE_GROUP_DETAIL_MESSAGE } from '@/services/apiError';
 import {
   connectSocket,
   joinGroup,
@@ -52,6 +53,7 @@ const fadeUp = {
 };
 
 const groupDetailKey = (id: string) => `groups:detail:${id}`;
+const groupLeaderboardKey = (id: string) => `groups:detail:${id}:leaderboard`;
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -96,7 +98,9 @@ export default function GroupDetailPage() {
         const cached = await cacheGet<GroupDetails>(groupDetailKey(groupId), { allowStale: true });
         if (!cancelled) {
           if (cached) setGroup(cached.value);
-          else setError(err instanceof Error ? err.message : 'حدث خطأ');
+          else setError(
+            isNetworkFailure(err) ? OFFLINE_GROUP_DETAIL_MESSAGE : userFacingMessage(err, 'حدث خطأ'),
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -113,7 +117,15 @@ export default function GroupDetailPage() {
       try {
         const { leaderboard: lb } = await getGroupLeaderboard(groupId);
         if (!cancelled) setLeaderboard(lb);
-      } catch { /* ignore */ }
+        void cacheSet(groupLeaderboardKey(groupId), lb);
+      } catch {
+        // Offline / unreachable — fall back to the last cached leaderboard so
+        // members stay ranked by their last-known study time.
+        const cached = await cacheGet<LeaderboardEntry[]>(groupLeaderboardKey(groupId), {
+          allowStale: true,
+        });
+        if (!cancelled && cached) setLeaderboard(cached.value);
+      }
     })();
     return () => { cancelled = true; };
   }, [groupId]);
@@ -121,32 +133,43 @@ export default function GroupDetailPage() {
   // Socket.IO group presence + leaderboard
   useEffect(() => {
     if (!groupId) return;
-    try { connectSocket(); } catch { /* Not authenticated */ }
-    onPresence((users) => {
-      setPresenceUsers(users);
-      // Merge focusing flags carried by the presence snapshot.
-      setFocusingMap((prev) => {
-        const next = { ...prev };
-        for (const u of users) next[u.userId] = u.focusing;
-        return next;
+    try {
+      connectSocket();
+      onPresence((users) => {
+        setPresenceUsers(users);
+        // Merge focusing flags carried by the presence snapshot.
+        setFocusingMap((prev) => {
+          const next = { ...prev };
+          for (const u of users) next[u.userId] = u.focusing;
+          return next;
+        });
       });
-    });
-    onLeaderboard((data) => {
-      if (data.groupId === groupId) {
-        setLeaderboard(data.leaderboard);
-      }
-    });
-    onFocusing((data) => {
-      if (data.groupId === groupId) {
-        setFocusingMap((prev) => ({ ...prev, [data.userId]: data.focusing }));
-      }
-    });
-    joinGroup(groupId);
+      onLeaderboard((data) => {
+        if (data.groupId === groupId) {
+          setLeaderboard(data.leaderboard);
+        }
+      });
+      onFocusing((data) => {
+        if (data.groupId === groupId) {
+          setFocusingMap((prev) => ({ ...prev, [data.userId]: data.focusing }));
+        }
+      });
+      // `joinGroup` throws when the socket cannot be established (e.g. offline
+      // with no access token). Presence is an enhancement — the page must still
+      // render cached group data when it is unavailable.
+      joinGroup(groupId);
+    } catch {
+      /* Offline / not authenticated — realtime presence is unavailable. */
+    }
     // Leave the room on unmount, but keep the socket connected so this user
     // stays online/present for the rest of the app session (required for the
     // Focusing indicator to remain valid in their groups).
     return () => {
-      leaveGroupPresence(groupId);
+      try {
+        leaveGroupPresence(groupId);
+      } catch {
+        /* Socket already gone. */
+      }
     };
   }, [groupId]);
 
@@ -186,7 +209,7 @@ export default function GroupDetailPage() {
       void cacheSet(groupDetailKey(groupId), g);
       setShowEdit(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setEditSaving(false);
     }
@@ -199,7 +222,7 @@ export default function GroupDetailPage() {
       await leaveGroup(groupId);
       navigate('/connect/groups');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setActionLoading(false);
       setConfirmAction(null);
@@ -213,7 +236,7 @@ export default function GroupDetailPage() {
       await deleteGroup(groupId);
       navigate('/connect/groups');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setActionLoading(false);
       setConfirmAction(null);
@@ -229,7 +252,7 @@ export default function GroupDetailPage() {
       setGroup(g);
       void cacheSet(groupDetailKey(groupId), g);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setActionLoading(false);
       setConfirmMemberId(null);

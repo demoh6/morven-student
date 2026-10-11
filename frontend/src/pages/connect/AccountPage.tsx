@@ -7,6 +7,7 @@ import { Input, TextArea, Select } from '@/components/UI/Input';
 import { CachedImage } from '@/components/UI/CachedImage';
 import { getOwnProfile, updateOwnProfile, uploadAvatar, removeAvatar, type OwnProfile } from '@/services/profileApi';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { userFacingMessage } from '@/services/apiError';
 import { enqueueMutation, isRetryableError } from '@/services/offlineQueue';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { ChevronLeft, User, Shield, LogOut, Camera, Trash2, Check, X } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function AccountPage() {
         if (cached) {
           apply(cached.value);
         } else {
-          setError(err instanceof Error ? err.message : 'حدث خطأ');
+          setError(userFacingMessage(err, 'حدث خطأ'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -110,7 +111,7 @@ export default function AccountPage() {
         setSuccess(true);
         successTimer.current = setTimeout(() => setSuccess(false), 3000);
       } else {
-        setError(err instanceof Error ? err.message : 'حدث خطأ');
+        setError(userFacingMessage(err, 'حدث خطأ'));
       }
     } finally {
       setSaving(false);
@@ -148,7 +149,7 @@ export default function AccountPage() {
       setAvatarPreview(null);
       setPendingFile(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setAvatarUploading(false);
       if (avatarInputRef.current) avatarInputRef.current.value = '';
@@ -175,7 +176,7 @@ export default function AccountPage() {
       });
       setAvatarUrl(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setAvatarUploading(false);
     }

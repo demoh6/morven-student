@@ -9,6 +9,7 @@ import { listUsers, updateUserRole, type AdminUser } from '@/pages/admin/adminAp
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { ROLE_ADMIN, ROLE_SUB_ADMIN, ROLE_USER, isAdminRole } from '@/pages/auth/roles';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
+import { userFacingMessage } from '@/services/apiError';
 import { ChevronLeft, Shield, User, RefreshCw } from 'lucide-react';
 
 const fadeUp = {
@@ -45,7 +46,7 @@ export default function AdminUsersPage() {
         ? await cacheGet<AdminUser[]>('admin:users', { allowStale: true })
         : null;
       if (cached) setUsers(cached.value);
-      else setError(err instanceof Error ? err.message : 'حدث خطأ');
+      else setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export default function AdminUsersPage() {
       const updated = await updateUserRole(user.id, role);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ');
+      setError(userFacingMessage(err, 'حدث خطأ'));
     } finally {
       setBusyId(null);
     }

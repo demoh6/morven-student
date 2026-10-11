@@ -1,5 +1,15 @@
 import { authRequest, authedFetch } from '@/pages/auth/authApi';
 import { API_BASE } from './apiBase';
+import { toNetworkError, NETWORK_ERROR_MESSAGE } from './apiError';
+
+/** `fetch` that turns a connectivity rejection into the Arabic network error. */
+async function safeFetch(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    throw toNetworkError(NETWORK_ERROR_MESSAGE, err);
+  }
+}
 
 export interface Profile {
   id: string;
@@ -71,7 +81,7 @@ export async function removeAvatar(): Promise<{ message: string }> {
 export async function getPublicProfile(
   username: string,
 ): Promise<{ profile: Profile }> {
-  const res = await fetch(
+  const res = await safeFetch(
     `${API_BASE}/api/profile/${encodeURIComponent(username)}`,
     {
       credentials: 'include',
@@ -91,7 +101,7 @@ export async function getPublicProfile(
 export async function getPublicAchievements(
   username: string,
 ): Promise<{ achievements: AchievementCounters }> {
-  const res = await fetch(
+  const res = await safeFetch(
     `${API_BASE}/api/profile/${encodeURIComponent(username)}/achievements`,
     {
       credentials: 'include',

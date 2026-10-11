@@ -24,6 +24,7 @@ vi.mock('@/services/offlineCache', () => cache);
 
 import { useResourcesStore } from '@/pages/connect/Resources/useResourcesStore';
 import type { Resource } from '@/pages/connect/Resources/resources';
+import { NETWORK_ERROR_MESSAGE } from '@/services/apiError';
 
 const listResource = { id: 'r1', title: 'Doc', type: 'DOCUMENT' } as unknown as Resource;
 
@@ -58,7 +59,7 @@ describe('useResourcesStore — offline read fallback', () => {
     await useResourcesStore.getState().fetchResources();
 
     expect(useResourcesStore.getState().resources).toEqual([]);
-    expect(useResourcesStore.getState().error).toBe('Failed to fetch');
+    expect(useResourcesStore.getState().error).toBe(NETWORK_ERROR_MESSAGE);
   });
 
   it('caches the list after a successful fetch', async () => {
