@@ -3,16 +3,174 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/morven.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Morven Student - Your Personal Productivity Hub" />
     <meta name="theme-color" content="#0a0a0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Morven" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'; this.onload=null;" />
     <title>Morven For Student</title>
+    <!--
+      Apply the persisted theme and lock scrolling before the first paint so the
+      splash background matches the app theme and there is no light/dark flash.
+      Mirrors useThemeStore's getInitialTheme(): a stored light/dark wins,
+      otherwise the OS preference decides.
+    -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        try {
+          var theme = localStorage.getItem('morven-theme');
+          if (theme !== 'light' && theme !== 'dark') {
+            theme =
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          }
+          root.classList.add(theme);
+        } catch (e) {
+          root.classList.add('dark');
+        }
+        root.classList.add('morven-splashing');
+      })();
+    </script>
+    <!--
+      Critical, self-contained splash styles so the launch screen renders on the
+      very first paint, before any bundled CSS is parsed. Reuses the existing
+      Morven logo, brand green (primary-500) and app backgrounds.
+    -->
+    <style>
+      html.morven-splashing,
+      html.morven-splashing body {
+        height: 100%;
+        overflow: hidden;
+      }
+      #morven-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #f8f9fc;
+        opacity: 1;
+        transition: opacity 0.4s ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html.dark #morven-splash {
+        background-color: #0a0a0f;
+      }
+      #morven-splash.morven-splash--hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .morven-splash__inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 28px;
+        padding: 24px;
+        animation: morven-splash-in 0.45s ease both;
+      }
+      .morven-splash__logo {
+        width: 88px;
+        height: 88px;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 28px rgba(6, 78, 57, 0.18));
+      }
+      html.dark .morven-splash__logo {
+        filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.5));
+      }
+      /* Shown only if startup is still running after a beat, so fast boots
+         never flash a spinner. */
+      .morven-splash__spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 9999px;
+        border: 3px solid rgba(4, 120, 81, 0.22);
+        border-top-color: #047851;
+        opacity: 0;
+        animation: morven-splash-spin 0.8s linear infinite,
+          morven-splash-spinner-in 0.3s ease 0.45s both;
+      }
+      html.dark .morven-splash__spinner {
+        border-color: rgba(123, 185, 156, 0.22);
+        border-top-color: #7bb99c;
+      }
+      @keyframes morven-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes morven-splash-in {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes morven-splash-spinner-in {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @media (min-width: 640px) {
+        .morven-splash__logo {
+          width: 104px;
+          height: 104px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .morven-splash__inner {
+          animation: none;
+        }
+        .morven-splash__spinner {
+          opacity: 1;
+          animation: morven-splash-spin 1.4s linear infinite;
+        }
+      }
+    </style>
   </head>
   <body class="antialiased">
+    <!--
+      Application-level launch splash. Rendered by the document itself (not
+      React) so it is visible immediately on browser visits and on PWA launches,
+      covering the gap before the JS bundle has loaded and initialized. The
+      installed-PWA native splash (manifest background_color + icon) is shown by
+      the platform first where supported; this screen continues seamlessly.
+      Removed by SplashController once startup completes, with a hard fallback
+      below so a failed boot can never leave the user on an infinite loader.
+    -->
+    <div id="morven-splash" role="status" aria-live="polite" aria-label="جاري تحميل مورفن">
+      <div class="morven-splash__inner">
+        <img class="morven-splash__logo" src="/morven.png" alt="مورفن" width="104" height="104" />
+        <div class="morven-splash__spinner" aria-hidden="true"></div>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Safety net: if the app never signals readiness (bundle error, hung
+         initialization), reveal the app anyway instead of an endless splash. -->
+    <script>
+      window.setTimeout(function () {
+        var el = document.getElementById('morven-splash');
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+        document.documentElement.classList.remove('morven-splashing');
+      }, 10000);
+    </script>
   </body>
 </html>

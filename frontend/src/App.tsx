@@ -6,6 +6,7 @@ import { PrayerPauseHost } from '@/components/prayer-pause';
 import { AdhkarReminderHost } from '@/components/adhkar-reminder';
 import { ToolErrorBoundary } from '@/pages/tools/ToolErrorBoundary';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { SplashController } from '@/components/SplashScreen';
 import { AdminRoute } from '@/pages/admin/AdminRoute';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
@@ -118,6 +119,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <SplashController />
       <NotificationHost />
       <PrayerPauseHost />
       <AdhkarReminderHost />
