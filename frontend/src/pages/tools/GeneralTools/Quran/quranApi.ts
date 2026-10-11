@@ -1,6 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Reciter, Surah } from '@/pages/tools/GeneralTools/Quran/quran';
 
+const RECITERS_CACHE_KEY = 'morven:quran:reciters:v1';
+const SURAHS_CACHE_KEY = 'morven:quran:suwar:v1';
+
+function readMetadataCache<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMetadataCache(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* metadata cache is best-effort */
+  }
+}
+
 const FEATURED_RECITER_IDS: string[] = [
   "5", // أحمد العجمي
   "12", //  ادريس أبكر
@@ -73,15 +93,30 @@ export function useQuranData() {
     let mounted = true;
 
     async function load() {
+      const cachedReciters = readMetadataCache<Reciter[]>(RECITERS_CACHE_KEY);
+      const cachedSurahs = readMetadataCache<Surah[]>(SURAHS_CACHE_KEY);
+      const hasCache = Boolean(cachedReciters?.length && cachedSurahs?.length);
+
+      // Serve cached metadata immediately so downloaded surahs stay usable
+      // offline (and the list renders without waiting on the network).
+      if (mounted && hasCache) {
+        setReciters(cachedReciters as Reciter[]);
+        setSurahs(cachedSurahs as Surah[]);
+        setLoading(false);
+      }
+
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         if (mounted) {
           setLoading(false);
+          if (!hasCache) {
+            setError('أنت غير متصل بالإنترنت');
+          }
         }
         return;
       }
 
       try {
-        setLoading(true);
+        if (!hasCache) setLoading(true);
 
         const [recitersData, surahsData] = await Promise.all([
           fetchRecitersInternal(),
@@ -92,9 +127,11 @@ export function useQuranData() {
           setReciters(recitersData);
           setSurahs(surahsData);
           setError(null);
+          writeMetadataCache(RECITERS_CACHE_KEY, recitersData);
+          writeMetadataCache(SURAHS_CACHE_KEY, surahsData);
         }
       } catch (err) {
-        if (mounted) {
+        if (mounted && !hasCache) {
           setError(
             err instanceof Error
               ? err.message

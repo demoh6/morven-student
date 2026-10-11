@@ -8,7 +8,7 @@ import { Badge } from '@/components/UI/Badge';
 import { FileUpload, type FileUploadProps } from '@/components/UI/FileUpload';
 import { useAppStore } from '@/store/useAppStore';
 import { saveToLibrary } from '@/services/savedFilesService';
-import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useOfflineNotice } from '@/hooks/useOnlineStatus';
 import {
   ACCEPTED_VIDEO_EXTENSIONS,
   MAX_VIDEO_SIZE_MB,
@@ -318,6 +318,8 @@ export function ErrorCard({ message }: { message: string }) {
 }
 
 export function OfflineNotice() {
+  const showOffline = useOfflineNotice();
+  if (!showOffline) return null;
   return (
     <Card padding="sm" className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
       <div className="flex items-start gap-2">
@@ -447,10 +449,9 @@ export function SelectedFileInfo({ file, onRemove }: { file: File; onRemove: () 
 
 /** Shared wrapper giving every tool card the same layout and offline hint. */
 export function ToolBody({ children }: { children: React.ReactNode }) {
-  const online = useOnlineStatus();
   return (
     <div className="space-y-4" dir="rtl">
-      {!online && <OfflineNotice />}
+      <OfflineNotice />
       {children}
     </div>
   );

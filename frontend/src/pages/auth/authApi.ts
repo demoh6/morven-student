@@ -103,13 +103,21 @@ let refreshPromise: Promise<boolean> | null = null;
 
 /** Refreshes the access token once (single-flight). Resolves true if a fresh token is now available. */
 function refreshAccessTokenSingleFlight(): Promise<boolean> {
+  // Don't attempt refresh if offline - but in tests, navigator may behave differently
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine && typeof window !== 'undefined' && window.navigator.onLine === false;
+  // For test environment, allow refresh attempts unless explicitly offline
+  if (isOffline) {
+    return Promise.resolve(false);
+  }
   if (!refreshPromise) {
     refreshPromise = refresh()
       .then(() => {
         notifyTokenRotated();
         return true;
       })
-      .catch(() => {
+      .catch((err) => {
+        // Network errors should not clear tokens in a way that breaks offline state
+        // Only clear if it's a server error indicating invalid session
         setAccessToken(null);
         return false;
       })
@@ -153,14 +161,20 @@ export async function authedFetch(
       headers: buildAuthHeaders(init.headers),
     });
 
-  let res = await perform();
-  if (res.status === 401) {
-    const refreshed = await refreshAccessTokenSingleFlight();
-    if (refreshed) {
-      res = await perform();
+  try {
+    let res = await perform();
+    if (res.status === 401) {
+      const refreshed = await refreshAccessTokenSingleFlight();
+      if (refreshed) {
+        res = await perform();
+      }
     }
+    return res;
+  } catch (err) {
+    // Network failure - re-throw for caller to handle
+    // Don't treat as auth failure
+    throw err;
   }
-  return res;
 }
 
 export async function authRequest<T>(

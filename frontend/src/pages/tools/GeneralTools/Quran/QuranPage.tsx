@@ -6,7 +6,8 @@ import { ReciterSelector } from '@/pages/tools/GeneralTools/Quran/ReciterSelecto
 import { SurahSelector } from '@/pages/tools/GeneralTools/Quran/SurahSelector';
 import { QuranPlayer } from '@/pages/tools/GeneralTools/Quran/QuranPlayer';
 import { useQuranData } from '@/pages/tools/GeneralTools/Quran/quranApi';
-import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useQuranDownloadStore } from '@/pages/tools/GeneralTools/Quran/useQuranDownloadStore';
+import { useOnlineStatus, useOfflineNotice } from '@/hooks/useOnlineStatus';
 import { Button } from '@/components/UI/Button';
 import { useEffect, useRef } from 'react';
 import { Book, Headphones, AlertCircle, WifiOff } from 'lucide-react';
@@ -15,7 +16,14 @@ export default function QuranPage() {
   const { currentReciter, currentSurah, setReciter, setSurah } = useQuranStore();
   const { reciters, surahs, loading, error, refetch } = useQuranData();
   const isOnline = useOnlineStatus();
+  const showOffline = useOfflineNotice();
   const wasOffline = useRef(!isOnline);
+
+  const initDownloads = useQuranDownloadStore((s) => s.init);
+
+  useEffect(() => {
+    void initDownloads();
+  }, [initDownloads]);
 
   useEffect(() => {
     if (wasOffline.current && isOnline) {
@@ -23,6 +31,8 @@ export default function QuranPage() {
     }
     wasOffline.current = !isOnline;
   }, [isOnline, refetch]);
+
+  const hasData = reciters.length > 0 && surahs.length > 0;
 
   if (loading) {
     return (
@@ -32,7 +42,7 @@ export default function QuranPage() {
     );
   }
 
-  if (!isOnline) {
+  if (!isOnline && !hasData) {
     return (
       <Card padding="lg">
         <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -41,7 +51,8 @@ export default function QuranPage() {
             أنت غير متصل بالإنترنت
           </h3>
           <p className="text-sm text-gray-400 dark:text-gray-500 max-w-md mb-4">
-            يتطلب القرآن الكريم اتصالاً بالإنترنت لتحميل القراء والسور والاستماع إليها.
+            يتطلب القرآن الكريم اتصالاً بالإنترنت لتحميل القراء والسور. قم بتحميل
+            السور التي تريدها أثناء الاتصال للاستماع إليها لاحقاً دون اتصال.
           </p>
           <Button onClick={refetch}>
             إعادة المحاولة
@@ -70,6 +81,19 @@ export default function QuranPage() {
 
   return (
     <div className="space-y-6">
+      {showOffline && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-700 dark:text-amber-300"
+        >
+          <WifiOff className="w-4 h-4 shrink-0" />
+          <span>
+            أنت غير متصل بالإنترنت — يمكنك تشغيل السور التي حمّلتها فقط.
+          </span>
+        </motion.div>
+      )}
+
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -103,6 +127,7 @@ export default function QuranPage() {
         <SurahSelector
           surahs={surahs}
           currentSurah={currentSurah}
+          reciter={currentReciter}
           onSelect={setSurah}
         />
 

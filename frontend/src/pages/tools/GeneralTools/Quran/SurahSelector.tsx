@@ -1,17 +1,28 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Book, Search, ChevronDown } from 'lucide-react';
-import type { Surah } from '@/pages/tools/GeneralTools/Quran/quran';
+import { Book, Search, ChevronDown, Download, Trash2, Check, Loader2 } from 'lucide-react';
+import type { Reciter, Surah } from '@/pages/tools/GeneralTools/Quran/quran';
+import { useQuranDownloadStore } from '@/pages/tools/GeneralTools/Quran/useQuranDownloadStore';
+import { downloadKey } from '@/pages/tools/GeneralTools/Quran/quranDownloads';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 interface SurahSelectorProps {
   surahs: Surah[];
   currentSurah: Surah | null;
+  reciter: Reciter | null;
   onSelect: (surah: Surah) => void;
 }
 
-export function SurahSelector({ surahs, currentSurah, onSelect }: SurahSelectorProps) {
+export function SurahSelector({ surahs, currentSurah, reciter, onSelect }: SurahSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+
+  const downloaded = useQuranDownloadStore((s) => s.downloaded);
+  const busy = useQuranDownloadStore((s) => s.busy);
+  const progress = useQuranDownloadStore((s) => s.progress);
+  const download = useQuranDownloadStore((s) => s.download);
+  const remove = useQuranDownloadStore((s) => s.remove);
+  const isOnline = useOnlineStatus();
 
   const filtered = useMemo(() => {
     if (!search.trim()) return surahs;
@@ -22,6 +33,12 @@ export function SurahSelector({ surahs, currentSurah, onSelect }: SurahSelectorP
         String(s.id).includes(q),
     );
   }, [surahs, search]);
+
+  const selectSurah = (surah: Surah) => {
+    onSelect(surah);
+    setIsOpen(false);
+    setSearch('');
+  };
 
   return (
     <div className="space-y-2">
@@ -79,16 +96,26 @@ export function SurahSelector({ surahs, currentSurah, onSelect }: SurahSelectorP
                   <div className="p-1">
                     {filtered.map((surah) => {
                       const isActive = currentSurah?.id === surah.id;
+                      const key = reciter ? downloadKey(reciter.id, surah.id) : null;
+                      const isDownloaded = key ? Boolean(downloaded[key]) : false;
+                      const isBusy = key ? Boolean(busy[key]) : false;
+                      const ratio = key ? progress[key] ?? 0 : 0;
+                      const percent = Math.round(ratio * 100);
+
                       return (
-                        <button
+                        <div
                           key={surah.id}
-                          onClick={() => {
-                            onSelect(surah);
-                            setIsOpen(false);
-                            setSearch('');
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => selectSurah(surah)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              selectSurah(surah);
+                            }
                           }}
                           className={[
-                            'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150',
+                            'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 cursor-pointer',
                             isActive
                               ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                               : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-dark-surface',
@@ -102,12 +129,71 @@ export function SurahSelector({ surahs, currentSurah, onSelect }: SurahSelectorP
                               {surah.name}
                             </div>
                           </div>
+
+                          {reciter ? (
+                            <div
+                              className="flex items-center gap-1 shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              {isBusy ? (
+                                <span className="flex items-center gap-1 text-[11px] font-medium text-primary-600 dark:text-primary-400 tabular-nums">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  {percent}%
+                                </span>
+                              ) : isDownloaded ? (
+                                <>
+                                  <span
+                                    title="متاح للاستماع دون اتصال"
+                                    aria-label="متاح للاستماع دون اتصال"
+                                    className="flex h-6 w-6 items-center justify-center rounded-lg text-emerald-600 dark:text-emerald-400"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </span>
+                                  <button
+                                    type="button"
+                                    title="إزالة التحميل"
+                                    aria-label={`إزالة تحميل سورة ${surah.name}`}
+                                    onClick={() => void remove(reciter.id, surah.id)}
+                                    className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-dark-surface transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  title={
+                                    isOnline
+                                      ? 'تحميل للاستماع دون اتصال'
+                                      : 'تحميل السورة يتطلب اتصالاً بالإنترنت'
+                                  }
+                                  aria-label={`تحميل سورة ${surah.name}`}
+                                  disabled={!isOnline}
+                                  onClick={() => void download(reciter, surah)}
+                                  className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 dark:text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-gray-100 dark:hover:bg-dark-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 dark:disabled:hover:text-gray-500 disabled:hover:bg-transparent"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+
                           {surah.verses ? (
                             <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
                               {surah.verses}
                             </span>
                           ) : null}
-                        </button>
+
+                          {isBusy ? (
+                            <div className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-gray-200 dark:bg-dark-border overflow-hidden">
+                              <div
+                                className="h-full bg-primary-500 transition-all duration-150"
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>

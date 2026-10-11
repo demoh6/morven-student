@@ -43,6 +43,7 @@ import SuggestionsPage from '@/pages/admin/SuggestionsPage';
 import AdminUsersPage from '@/pages/admin/AdminUsersPage';
 import AdminSuggestionsPage from '@/pages/admin/AdminSuggestionsPage';
 import AdminDhikrSubmissionsPage from '@/pages/admin/AdminDhikrSubmissionsPage';
+import PortfolioAdminPage from '@/pages/tools/GeneralTools/portfolio/admin/PortfolioAdminPage';
 
 
 const toolPageMap: Record<ToolCategory, ComponentType<{ toolId: string }>> = {
@@ -152,6 +153,7 @@ export default function App() {
           <Route path="/admin/users" element={<AdminRoute requireMainAdmin><AdminUsersPage /></AdminRoute>} />
           <Route path="/admin/suggestions" element={<AdminRoute><AdminSuggestionsPage /></AdminRoute>} />
           <Route path="/admin/adhkar" element={<AdminRoute><AdminDhikrSubmissionsPage /></AdminRoute>} />
+          <Route path="/admin/portfolio" element={<AdminRoute><PortfolioAdminPage /></AdminRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>

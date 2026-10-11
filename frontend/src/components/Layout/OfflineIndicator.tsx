@@ -1,13 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { WifiOff } from 'lucide-react';
-import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useOfflineNotice } from '@/hooks/useOnlineStatus';
 
 export function OfflineIndicator() {
-  const isOnline = useOnlineStatus();
+  const showOffline = useOfflineNotice();
 
   return (
     <AnimatePresence>
-      {!isOnline && (
+      {showOffline && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}

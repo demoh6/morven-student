@@ -27,6 +27,7 @@ import type { Task, ExamCountdown } from '@/types';
 import QuranPage from './Quran/QuranPage';
 import NotesPage from './Notes/Notes';
 import CvBuilder from './cv/CvBuilder';
+import PortfolioBuilder from './portfolio/PortfolioBuilder';
 import AdhkarPage from './Adhkar/AdhkarPage';
 import { ToolHero } from '@/pages/tools/ToolHero';
 
@@ -73,6 +74,10 @@ export default function GeneralToolPage({ toolId }: GeneralToolPageProps) {
 
     case 'cv-builder':
       content = <CvBuilder />;
+      break;
+
+    case 'portfolio-builder':
+      content = <PortfolioBuilder />;
       break;
 
  

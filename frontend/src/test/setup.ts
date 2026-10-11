@@ -1,5 +1,19 @@
 import { vi } from 'vitest';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import '@testing-library/jest-dom/vitest';
+
+// pdf.js needs a worker URL it can import under Vitest (the app's bundled
+// `new URL(...)` resolves to an http:// URL that Node's ESM loader rejects).
+try {
+  const require = createRequire(join(process.cwd(), 'package.json'));
+  const workerPath = require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+  const { GlobalWorkerOptions } = require('pdfjs-dist') as typeof import('pdfjs-dist');
+  GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+} catch {
+  // Fall back to pdf.js defaults if the worker file cannot be resolved.
+}
 
 // jsdom does not implement object URLs; the video tools rely on them for
 // previews, so provide deterministic stubs.

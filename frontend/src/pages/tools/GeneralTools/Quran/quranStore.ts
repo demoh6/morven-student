@@ -1,7 +1,94 @@
 import { create } from 'zustand';
 import type { Reciter, Surah } from '@/pages/tools/GeneralTools/Quran/quran';
+import { audioUrl, getCachedAudioUrl } from '@/pages/tools/GeneralTools/Quran/quranDownloads';
+import { useAppStore } from '@/store/useAppStore';
+import { OFFLINE_NOTICE_DURATION_MS } from '@/hooks/useOnlineStatus';
 
 let _audio: HTMLAudioElement | null = null;
+
+// Object URL for the currently loaded cached (offline) audio blob. Owned by
+// this module and revoked whenever the source changes.
+let _objectUrl: string | null = null;
+// Guards against out-of-order async source resolution when the user rapidly
+// switches surah/reciter.
+let _sourceToken = 0;
+
+function releaseObjectUrl(): void {
+  if (_objectUrl) {
+    try {
+      URL.revokeObjectURL(_objectUrl);
+    } catch {
+      /* ignore */
+    }
+    _objectUrl = null;
+  }
+}
+
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+/**
+ * Resolve the audio source for a reciter/surah pair: prefer the downloaded
+ * (offline) copy and fall back to the remote URL. Never attempts a network
+ * request for a surah that is not downloaded while offline.
+ */
+async function applyAudioSource(
+  reciter: Reciter,
+  surah: Surah,
+  autoplay: boolean,
+): Promise<void> {
+  const token = ++_sourceToken;
+  const audio = initAudio();
+
+  let cachedUrl: string | null = null;
+  try {
+    cachedUrl = await getCachedAudioUrl(reciter.id, surah.id);
+  } catch {
+    cachedUrl = null;
+  }
+
+  // A newer source request superseded this one; discard the stale URL.
+  if (token !== _sourceToken) {
+    if (cachedUrl) {
+      try {
+        URL.revokeObjectURL(cachedUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  if (!cachedUrl && isOffline()) {
+    releaseObjectUrl();
+    audio.removeAttribute('src');
+    audio.load();
+    useAppStore
+      .getState()
+      .addNotification(
+        'هذه السورة غير محمّلة، حمّلها أولاً للاستماع دون اتصال',
+        'warning',
+        OFFLINE_NOTICE_DURATION_MS,
+      );
+    return;
+  }
+
+  releaseObjectUrl();
+
+  if (cachedUrl) {
+    _objectUrl = cachedUrl;
+    audio.src = cachedUrl;
+  } else {
+    audio.src = audioUrl(reciter.server, surah.id);
+  }
+
+  audio.load();
+
+  if (autoplay) {
+    audio.play().catch(() => {});
+  }
+}
 
 function initAudio(): HTMLAudioElement {
   if (_audio) return _audio;
@@ -76,19 +163,12 @@ export const useQuranStore = create<QuranStore>((set, get) => ({
   setSurah: (surah) => {
     const state = get();
     const wasPlaying = state.isPlaying;
-    const audio = initAudio();
-
-    const server = state.currentReciter?.server || '';
-    const audioUrl = `${server}${String(surah.id).padStart(3, '0')}.mp3`;
 
     set({ currentSurah: surah, currentTime: 0, duration: 0 });
 
-    audio.src = audioUrl;
-    audio.load();
+    if (!state.currentReciter) return;
 
-    if (wasPlaying) {
-      audio.play().catch(() => {});
-    }
+    void applyAudioSource(state.currentReciter, surah, wasPlaying);
   },
 
   play: () => {
@@ -97,10 +177,12 @@ export const useQuranStore = create<QuranStore>((set, get) => ({
 
     if (!state.currentSurah || !state.currentReciter) return;
 
-    if (!audio.src || audio.src === window.location.href || !audio.src.startsWith('http')) {
-      const server = state.currentReciter.server;
-      audio.src = `${server}${String(state.currentSurah.id).padStart(3, '0')}.mp3`;
-      audio.load();
+    const hasSource =
+      Boolean(audio.src) && audio.src !== window.location.href;
+
+    if (!hasSource) {
+      void applyAudioSource(state.currentReciter, state.currentSurah, true);
+      return;
     }
 
     audio.play().catch(() => {});
