@@ -114,8 +114,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    useAuthStore.getState().initialize();
+    // Subscribe to auth transitions BEFORE initializing. Offline
+    // initialize() can resolve synchronously, so subscribing first guarantees
+    // the session manager observes the `initialized` transition. bootstrapSession
+    // also reconciles already-initialized state, so either order is safe.
     bootstrapSession();
+    useAuthStore.getState().initialize();
   }, []);
 
   return (

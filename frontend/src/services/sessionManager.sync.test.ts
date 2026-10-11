@@ -107,7 +107,7 @@ beforeEach(async () => {
   setScopeToGuest();
   vi.resetAllMocks();
   vi.mocked(authApi.getAccessToken).mockReturnValue(null);
-  useAuthStore.setState({ user: null, loading: false, error: null, initialized: false });
+  useAuthStore.setState({ user: null, loading: false, error: null, initialized: false, hasPersistedSession: false, loggedOut: false });
   vi.mocked(authApi.refresh).mockResolvedValue({ user: USER_A, accessToken: 'access-token' });
   vi.mocked(api.fetchTasks).mockResolvedValue([]);
   vi.mocked(api.fetchExams).mockResolvedValue([]);

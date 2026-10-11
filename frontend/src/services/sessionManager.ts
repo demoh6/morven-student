@@ -851,6 +851,54 @@ function installRefocusListener(): void {
 // ---------------------------------------------------------------------------
 
 let bootstrapped = false;
+// The account scope currently applied, plus any in-flight apply. Used so the
+// immediate boot reconcile and the auth subscription cannot apply the same
+// account twice (StrictMode double-mount, synchronous offline initialize).
+let appliedUserId: string | null = null;
+let applyInFlight: { userId: string; promise: Promise<void> } | null = null;
+
+/**
+ * Apply account scope/bootstrap at most once per user. The scope-switch inside
+ * `applyAccount` is synchronous, so the correct account scope is set before any
+ * account-scoped data is rendered or mutated; the guard merely prevents a
+ * duplicate hydration/migration pass.
+ */
+async function applyAccountOnce(userId: string): Promise<void> {
+  if (appliedUserId === userId && getScopeUserId() === userId) return;
+  if (applyInFlight && applyInFlight.userId === userId) return applyInFlight.promise;
+  const promise = applyAccount(userId)
+    .then(() => {
+      appliedUserId = userId;
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (applyInFlight?.promise === promise) applyInFlight = null;
+    });
+  applyInFlight = { userId, promise };
+  return promise;
+}
+
+function startAccountBootstrap(userId: string): void {
+  void applyAccountOnce(userId);
+}
+
+/**
+ * Reconcile the current auth state with the scope. Handles the case where
+ * `initialize()` already completed before `bootstrapSession()` installed its
+ * subscription (offline initialize resolves synchronously) as well as the
+ * normal post-initialize transitions.
+ */
+function reconcileAuthState(state: { initialized: boolean; user: { id: string } | null }): void {
+  if (!state.initialized) return;
+  if (state.user) {
+    startAccountBootstrap(state.user.id);
+    return;
+  }
+  // No session: retarget to guest but never wipe account data on boot
+  // (boot-time auth failures must not destroy the local account snapshot).
+  if (!isGuestScope()) applyGuestScope(getScopeUserId());
+  appliedUserId = null;
+}
 
 export function bootstrapSession(): void {
   if (bootstrapped) return;
@@ -862,24 +910,26 @@ export function bootstrapSession(): void {
   useAuthStore.subscribe((state, prev) => {
     if (!prev.initialized && state.initialized) {
       // First initialize() resolution
-      if (state.user) {
-        void applyAccount(state.user.id);
-      } else if (!isGuestScope()) {
-        // Session expired or never logged in but scope was stale
-        applyGuestScope(getScopeUserId());
-      }
+      reconcileAuthState(state);
       return;
     }
 
     // Subsequent login (user becomes non-null)
     if (state.user && !prev.user) {
-      void applyAccount(state.user.id);
+      startAccountBootstrap(state.user.id);
       return;
     }
 
     // Logout (user becomes null)
     if (!state.user && prev.user) {
+      appliedUserId = null;
       applyGuestScope(prev.user.id, true);
     }
   });
+
+  // `initialize()` can resolve synchronously (offline), so App.tsx may call it
+  // BEFORE this subscription exists — in which case the state transition above
+  // is never observed. Reconcile the already-initialized state so the correct
+  // account scope/bootstrap is never skipped, regardless of call order.
+  reconcileAuthState(useAuthStore.getState());
 }

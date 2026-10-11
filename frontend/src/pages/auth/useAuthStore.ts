@@ -3,6 +3,21 @@ import { persist } from 'zustand/middleware';
 import type { AuthUser } from '@/pages/auth/authApi';
 import * as api from '@/pages/auth/authApi';
 
+/**
+ * A CONFIRMED invalid/revoked refresh session is signalled by the refresh
+ * endpoint with an explicit HTTP 401 (the backend returns 401 for a
+ * missing/invalid/expired/revoked refresh token). Network failures, timeouts,
+ * unreachable servers and HTTP 5xx carry NO `status` (or a non-401 status) and
+ * must never be treated as a logout.
+ */
+function isConfirmedInvalidSession(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { status?: unknown }).status === 401
+  );
+}
+
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
@@ -10,6 +25,9 @@ interface AuthState {
   initialized: boolean;
   /** Persisted flag to distinguish explicit logout from offline/boot failures. */
   hasPersistedSession: boolean;
+  /** Persisted flag: the user explicitly logged out. Authoritative across
+   *  reloads and reconnection — an offline logout must never auto-restore. */
+  loggedOut: boolean;
 
   initialize: () => Promise<void>;
   register: (
@@ -45,6 +63,7 @@ export const useAuthStore = create(
         error: null,
         initialized: false,
         hasPersistedSession: false,
+        loggedOut: false,
 
         initialize: () => {
           if (initializePromise) return initializePromise;
@@ -53,22 +72,43 @@ export const useAuthStore = create(
             set({ loading: true });
             let state = get();
             // Defensive: check localStorage directly in case rehydration hasn't completed yet
-            if ((!state.user || !state.hasPersistedSession) && typeof window !== 'undefined') {
+            if (typeof window !== 'undefined') {
               try {
                 const raw = localStorage.getItem('morven-auth');
                 if (raw) {
                   const parsed = JSON.parse(raw);
-                  if (parsed?.state?.user && parsed?.state?.hasPersistedSession) {
-                    state = { ...state, user: parsed.state.user, hasPersistedSession: true };
+                  const persisted = parsed?.state;
+                  if (persisted && (persisted.user || persisted.hasPersistedSession || persisted.loggedOut)) {
+                    state = {
+                      ...state,
+                      user: persisted.user ?? state.user,
+                      hasPersistedSession: !!persisted.hasPersistedSession,
+                      loggedOut: !!persisted.loggedOut,
+                    };
                   }
                 }
               } catch {}
             }
-            // If user explicitly logged out, do not attempt to auto-restore session
-            if (state.user && !state.hasPersistedSession) {
-              // Explicit logout state - don't restore
+            // An explicit logout is authoritative across reloads and
+            // reconnection: never auto-restore a session for it, even if a
+            // (httpOnly) refresh cookie still exists because the logout
+            // happened offline.
+            if (state.loggedOut) {
               api.setAccessToken(null);
               set({ user: null, initialized: true, loading: false });
+              const online = typeof navigator !== 'undefined' && navigator.onLine;
+              if (online) {
+                // Best-effort: revoke the server-side session left over from an
+                // offline logout now that we are online again. Non-blocking.
+                void api.logout().catch(() => {});
+              }
+              return;
+            }
+            // Legacy explicit-logout shape: identity persisted but flagged as
+            // not an active session.
+            if (state.user && !state.hasPersistedSession) {
+              api.setAccessToken(null);
+              set({ user: null, hasPersistedSession: false, initialized: true, loading: false });
               return;
             }
             try {
@@ -86,19 +126,24 @@ export const useAuthStore = create(
               set({
                 user: result.user,
                 hasPersistedSession: true,
+                loggedOut: false,
                 initialized: true,
                 loading: false,
               });
             } catch (err) {
-              const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-              if (isOffline && state.user) {
-                api.setAccessToken(null);
-                set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
-                return;
-              } else {
-                api.setAccessToken(null);
+              api.setAccessToken(null);
+              if (isConfirmedInvalidSession(err)) {
+                // Explicit HTTP 401 from /api/auth/refresh: the refresh session
+                // is invalid/revoked — honor the security contract and log out.
                 set({ user: null, hasPersistedSession: false, initialized: true, loading: false });
                 return;
+              }
+              // Connectivity / timeout / unreachable server / HTTP 5xx / CSRF:
+              // NOT an authentication failure. Preserve the persisted identity.
+              if (state.user) {
+                set({ user: state.user, hasPersistedSession: true, initialized: true, loading: false });
+              } else {
+                set({ initialized: true, loading: false });
               }
             }
           })();
@@ -112,7 +157,7 @@ export const useAuthStore = create(
       set({ loading: true, error: null });
       try {
         const result = await api.register(email, username, password, displayName);
-        set({ user: result.user, hasPersistedSession: true, loading: false });
+        set({ user: result.user, hasPersistedSession: true, loggedOut: false, loading: false });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'حدث خطأ';
         set({ loading: false, error: message });
@@ -124,7 +169,7 @@ export const useAuthStore = create(
       set({ loading: true, error: null });
       try {
         const result = await api.login(email, password);
-        set({ user: result.user, hasPersistedSession: true, loading: false });
+        set({ user: result.user, hasPersistedSession: true, loggedOut: false, loading: false });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'حدث خطأ';
         set({ loading: false, error: message });
@@ -136,7 +181,7 @@ export const useAuthStore = create(
       set({ loading: true, error: null });
       try {
         const result = await api.googleLogin(credential);
-        set({ user: result.user, hasPersistedSession: true, loading: false });
+        set({ user: result.user, hasPersistedSession: true, loggedOut: false, loading: false });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'حدث خطأ';
         set({ loading: false, error: message });
@@ -151,12 +196,12 @@ export const useAuthStore = create(
           await api.logout();
         }
       } finally {
-        set({ user: null, hasPersistedSession: false });
+        set({ user: null, hasPersistedSession: false, loggedOut: true });
       }
     },
 
     markLoggedOut: () => {
-      set({ user: null, hasPersistedSession: false });
+      set({ user: null, hasPersistedSession: false, loggedOut: true });
     },
 
     clearError: () => set({ error: null }),
@@ -172,6 +217,7 @@ export const useAuthStore = create(
       partialize: (state) => ({
         user: state.user,
         hasPersistedSession: state.hasPersistedSession,
+        loggedOut: state.loggedOut,
       } as any),
     },
   ),

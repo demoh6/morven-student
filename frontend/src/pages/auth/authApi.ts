@@ -28,7 +28,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<{ da
   const data = await res.json();
 
   if (!res.ok) {
-    const error = new Error(data.error || 'حدث خطأ غير متوقع') as Error & { code?: string };
+    const error = new Error(data.error || 'حدث خطأ غير متوقع') as Error & { code?: string; status?: number };
+    // Attach the HTTP status so callers can distinguish a CONFIRMED auth failure
+    // (an explicit 401 from the refresh endpoint) from connectivity/server
+    // failures (5xx, 403 CSRF, etc.). Network/timeout failures never reach here
+    // — `fetch` rejects and the resulting error carries no `status`.
+    error.status = res.status;
     // Preserve any structured machine-readable code (e.g. GOOGLE_EMAIL_EXISTS)
     // so callers can map it to contextually clear messages.
     if (typeof data.code === 'string' && data.code) {
@@ -319,22 +324,34 @@ export async function resetPassword(token: string, password: string): Promise<{ 
   return data;
 }
 
+/** Refresh must never hang a boot forever; a timeout surfaces as an AbortError
+ *  (no HTTP status), which callers classify as a connectivity failure — never
+ *  as an invalid session. */
+export const REFRESH_TIMEOUT_MS = 10_000;
+
 export async function refresh(): Promise<AuthResponse> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = resolveCsrfToken();
   if (token) {
     headers['X-CSRF-Token'] = token;
   }
-  const { data, res } = await request<AuthResponse>('/api/auth/refresh', {
-    method: 'POST',
-    headers,
-  });
-  setAccessToken(data.accessToken);
-  const cookies = parseCookies(res);
-  if (cookies['morven_csrf_token']) {
-    csrfToken = cookies['morven_csrf_token'];
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS) : null;
+  try {
+    const { data, res } = await request<AuthResponse>('/api/auth/refresh', {
+      method: 'POST',
+      headers,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    setAccessToken(data.accessToken);
+    const cookies = parseCookies(res);
+    if (cookies['morven_csrf_token']) {
+      csrfToken = cookies['morven_csrf_token'];
+    }
+    return data;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
-  return data;
 }
 
 export async function getMe(): Promise<{ user: AuthUser }> {
