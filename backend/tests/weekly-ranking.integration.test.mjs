@@ -4,6 +4,7 @@ import { startBackend } from "./helpers/server.mjs";
 import { config as loadDotEnv } from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { getWeekBounds } from "../dist/services/week.service.js";
+import { getWeeklyGroupRanking } from "../dist/services/pomodoro.service.js";
 
 loadDotEnv();
 
@@ -335,6 +336,44 @@ describe("Weekly Group Ranking", () => {
     assert.ok(oldStillThere, "old owner session must still be stored");
     assert.equal(oldStillThere.durationSeconds, 99999);
     assert.ok(stored.some((s) => s.sessionId === `${tag}-old-peer`), "old peer session must still be stored");
+  });
+
+  // -------------------------------------------------------------------------
+  // 5b. Restart safety around the Saturday boundary
+  // -------------------------------------------------------------------------
+
+  it("still resets at Saturday 00:00 after a backend restart (query-time, not stored)", async () => {
+    const owner = await register(baseUrl, uniqueSuffix("rstart"));
+    const group = await createGroup(baseUrl, owner.accessToken, "RestartReset");
+
+    const tag = uniqueSuffix("rs");
+    // The only session is Friday 23:59:59 local (+03) = 20:59:59Z — the last
+    // second of the previous competition week. A process restart can never lose
+    // this reset because nothing mutable is stored for the week.
+    await seedSessions([
+      {
+        groupId: group.id,
+        userId: owner.user.id,
+        durationSeconds: 7200,
+        sessionId: `${tag}-prev`,
+        completedAt: new Date("2026-09-04T20:59:59.000Z"),
+      },
+    ]);
+
+    const sum = (rows, uid) => rows.find((e) => e.userId === uid).weeklySeconds;
+
+    // One second before the boundary the previous week's hours are still shown.
+    const before = await getWeeklyGroupRanking(group.id, new Date("2026-09-04T20:59:59.000Z"));
+    assert.equal(sum(before.ranking, owner.user.id), 7200);
+
+    // Exactly Saturday 00:00 local (+03) = 21:00Z the totals reset to zero...
+    const atBoundary = await getWeeklyGroupRanking(group.id, new Date("2026-09-04T21:00:00.000Z"));
+    assert.equal(sum(atBoundary.ranking, owner.user.id), 0);
+
+    // ...and the historical session is untouched (personal/history preserved).
+    const stored = await prisma.pomodoroSession.findUnique({ where: { sessionId: `${tag}-prev` } });
+    assert.ok(stored, "previous-week session must remain stored");
+    assert.equal(stored.durationSeconds, 7200);
   });
 
   // -------------------------------------------------------------------------

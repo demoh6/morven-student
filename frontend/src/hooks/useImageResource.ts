@@ -29,6 +29,29 @@ function isOffline(): boolean {
 }
 
 /**
+ * Fetch and persist the bytes for `url` unless they are already cached.
+ *
+ * Caching must not depend on the browser firing the <img> `load` event: that
+ * never happens for an already-cached response in some browsers and never at
+ * all in non-rendering environments, which left a freshly-seen image (e.g. a
+ * group a member just joined) with no offline copy. Best-effort only.
+ */
+async function prefetchImageBytes(url: string): Promise<ArrayBuffer | null> {
+  try {
+    if (typeof fetch !== 'function' || isOffline()) return null;
+    if ((await getImageBytes(url)) !== null) return null;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const bytes = await res.arrayBuffer();
+    if (bytes.byteLength === 0) return null;
+    await putImageBytes(url, bytes);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a (possibly cached) image URL for rendering.
  *
  * Online/offline stability contract:
@@ -102,7 +125,16 @@ export function useImageResource(source: string | null | undefined): ImageResour
       const bytes = await getImageBytes(normalized);
       cachedLookupDoneRef.current = true;
       if (!mountedRef.current || token !== tokenRef.current) return;
-      if (bytes) setSrc(getOrCreateObjectUrl(normalized, bytes));
+      if (bytes) {
+        setSrc(getOrCreateObjectUrl(normalized, bytes));
+        return;
+      }
+      // No cached copy yet: persist the bytes now so this image is available
+      // offline afterwards, without waiting for an <img> load event that may
+      // never fire. Also render from the freshly cached bytes.
+      const fetched = await prefetchImageBytes(normalized);
+      if (!fetched || !mountedRef.current || token !== tokenRef.current) return;
+      setSrc(getOrCreateObjectUrl(normalized, fetched));
     })();
 
     return () => {

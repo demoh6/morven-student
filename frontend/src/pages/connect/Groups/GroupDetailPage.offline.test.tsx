@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   getGroupDetails: vi.fn(),
-  getGroupLeaderboard: vi.fn(),
+  getWeeklyGroupRanking: vi.fn(),
   leaveGroup: vi.fn(),
   deleteGroup: vi.fn(),
   removeMember: vi.fn(),
@@ -51,7 +51,31 @@ const group = {
   members: [{ id: 'me', username: 'me', displayName: 'Me', avatarUrl: null, role: 'OWNER' }],
 };
 
-const leaderboard = [{ userId: 'me', totalSeconds: 3600 }];
+const twoMemberGroup = {
+  ...group,
+  members: [
+    { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null, role: 'OWNER' },
+    { id: 'peer', username: 'peer', displayName: 'Peer', avatarUrl: null, role: 'MEMBER' },
+  ],
+};
+
+const WEEK_START = '2026-09-04T21:00:00.000Z';
+const WEEK_END = '2026-09-11T20:59:59.000Z';
+
+function weeklyResponse(ranking: Array<{ userId: string; weeklySeconds: number }>) {
+  return {
+    weekStart: WEEK_START,
+    weekEnd: WEEK_END,
+    ranking: ranking.map((r, i) => ({
+      rank: i + 1,
+      userId: r.userId,
+      username: r.userId,
+      displayName: r.userId === 'me' ? 'Me' : 'Peer',
+      avatarUrl: null,
+      weeklySeconds: r.weeklySeconds,
+    })),
+  };
+}
 
 function renderPage() {
   return render(
@@ -69,21 +93,21 @@ beforeEach(() => {
   cache.cacheGet.mockResolvedValue(null);
   socket.connectSocket.mockReturnValue(undefined);
   socket.joinGroup.mockImplementation(() => {});
-  api.getGroupLeaderboard.mockResolvedValue({ leaderboard: [] });
+  api.getWeeklyGroupRanking.mockResolvedValue(weeklyResponse([]));
 });
 
 describe('GroupDetailPage — offline behavior', () => {
-  it('renders the cached group (and leaderboard) when the network request fails', async () => {
+  it('renders the cached group (and weekly ranking) when the network request fails', async () => {
     api.getGroupDetails.mockRejectedValue(new TypeError('Failed to fetch'));
-    api.getGroupLeaderboard.mockRejectedValue(new TypeError('Failed to fetch'));
+    api.getWeeklyGroupRanking.mockRejectedValue(new TypeError('Failed to fetch'));
     // Offline with no access token: joining the socket room throws.
     socket.joinGroup.mockImplementation(() => {
       throw new Error('No access token');
     });
     cache.cacheGet.mockImplementation(async (key: string) => {
       if (key === 'groups:detail:g1') return { value: group, updatedAt: 1, expiresAt: null };
-      if (key === 'groups:detail:g1:leaderboard') {
-        return { value: leaderboard, updatedAt: 1, expiresAt: null };
+      if (key === 'groups:detail:g1:weekly') {
+        return { value: weeklyResponse([{ userId: 'me', weeklySeconds: 3600 }]).ranking, updatedAt: 1, expiresAt: null };
       }
       return null;
     });
@@ -92,7 +116,7 @@ describe('GroupDetailPage — offline behavior', () => {
 
     expect(await screen.findByText('Alpha Group')).toBeTruthy();
     expect(cache.cacheGet).toHaveBeenCalledWith('groups:detail:g1', { allowStale: true });
-    expect(cache.cacheGet).toHaveBeenCalledWith('groups:detail:g1:leaderboard', {
+    expect(cache.cacheGet).toHaveBeenCalledWith('groups:detail:g1:weekly', {
       allowStale: true,
     });
     expect(screen.queryByText(NETWORK_ERROR_MESSAGE)).toBeNull();
@@ -126,16 +150,92 @@ describe('GroupDetailPage — offline behavior', () => {
     expect(await screen.findByText('Alpha Group')).toBeTruthy();
   });
 
-  it('caches the group details and leaderboard after a successful load', async () => {
+  it('caches the group details and weekly ranking after a successful load', async () => {
     api.getGroupDetails.mockResolvedValue({ group });
-    api.getGroupLeaderboard.mockResolvedValue({ leaderboard });
+    const response = weeklyResponse([{ userId: 'me', weeklySeconds: 3600 }]);
+    api.getWeeklyGroupRanking.mockResolvedValue(response);
 
     renderPage();
 
     expect(await screen.findByText('Alpha Group')).toBeTruthy();
     expect(cache.cacheSet).toHaveBeenCalledWith('groups:detail:g1', group);
     await waitFor(() =>
-      expect(cache.cacheSet).toHaveBeenCalledWith('groups:detail:g1:leaderboard', leaderboard),
+      expect(cache.cacheSet).toHaveBeenCalledWith('groups:detail:g1:weekly', response.ranking),
     );
+  });
+});
+
+describe('GroupDetailPage — weekly group study hours', () => {
+  it('displays the current week hours (not all-time) ranked by weekly totals', async () => {
+    api.getGroupDetails.mockResolvedValue({ group: twoMemberGroup });
+    api.getWeeklyGroupRanking.mockResolvedValue(
+      weeklyResponse([
+        { userId: 'peer', weeklySeconds: 7200 },
+        { userId: 'me', weeklySeconds: 3600 },
+      ]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Alpha Group')).toBeTruthy();
+    expect(api.getWeeklyGroupRanking).toHaveBeenCalledWith('g1');
+
+    // Hours badges reflect WEEKLY seconds only.
+    expect(await screen.findByText('2 ساعة')).toBeInTheDocument();
+    expect(screen.getByText('1 ساعة')).toBeInTheDocument();
+
+    // Highest weekly total is ranked first (appears earlier in the DOM).
+    const peer = screen.getByText('Peer');
+    const me = screen.getByText('Me');
+    expect(peer.compareDocumentPosition(me) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows zero hours for every member at the start of a new week (Saturday reset)', async () => {
+    api.getGroupDetails.mockResolvedValue({ group: twoMemberGroup });
+    api.getWeeklyGroupRanking.mockResolvedValue(
+      weeklyResponse([
+        { userId: 'me', weeklySeconds: 0 },
+        { userId: 'peer', weeklySeconds: 0 },
+      ]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Alpha Group')).toBeTruthy();
+    const zeroBadges = await screen.findAllByText('0 ساعة');
+    expect(zeroBadges).toHaveLength(2);
+  });
+
+  it('refreshes the weekly ranking when a leaderboard socket event arrives', async () => {
+    let leaderboardCb: ((data: { groupId: string; leaderboard: unknown[] }) => void) | undefined;
+    socket.onLeaderboard.mockImplementation((cb: typeof leaderboardCb) => {
+      leaderboardCb = cb;
+    });
+    api.getGroupDetails.mockResolvedValue({ group: twoMemberGroup });
+    api.getWeeklyGroupRanking.mockResolvedValueOnce(
+      weeklyResponse([
+        { userId: 'me', weeklySeconds: 0 },
+        { userId: 'peer', weeklySeconds: 0 },
+      ]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Alpha Group')).toBeTruthy();
+    await waitFor(() => expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(1));
+
+    // A session is submitted: the socket broadcast triggers a weekly refetch.
+    api.getWeeklyGroupRanking.mockResolvedValueOnce(
+      weeklyResponse([
+        { userId: 'me', weeklySeconds: 7200 },
+        { userId: 'peer', weeklySeconds: 0 },
+      ]),
+    );
+    await act(async () => {
+      leaderboardCb?.({ groupId: 'g1', leaderboard: [] });
+    });
+
+    await waitFor(() => expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('2 ساعة')).toBeInTheDocument();
   });
 });

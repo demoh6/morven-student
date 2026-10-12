@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card } from '@/components/UI/Card';
@@ -11,9 +11,9 @@ import {
   deleteGroup,
   removeMember,
   updateGroup,
-  getGroupLeaderboard,
+  getWeeklyGroupRanking,
   type GroupDetails,
-  type LeaderboardEntry,
+  type WeeklyRankingEntry,
 } from '@/services/groupApi';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
 import { isNetworkFailure, userFacingMessage, OFFLINE_GROUP_DETAIL_MESSAGE } from '@/services/apiError';
@@ -53,7 +53,7 @@ const fadeUp = {
 };
 
 const groupDetailKey = (id: string) => `groups:detail:${id}`;
-const groupLeaderboardKey = (id: string) => `groups:detail:${id}:leaderboard`;
+const groupWeeklyRankingKey = (id: string) => `groups:detail:${id}:weekly`;
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -67,7 +67,11 @@ export default function GroupDetailPage() {
   const [confirmMemberId, setConfirmMemberId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  // The active competition week's ranking (Saturday 00:00 → Friday 23:59:59,
+  // Asia/Hebron). This is the only value used for the member list — it resets
+  // automatically each Saturday because the backend scopes it to the current
+  // week, so weekly group study hours visibly drop to zero with no reset job.
+  const [weeklyRanking, setWeeklyRanking] = useState<WeeklyRankingEntry[]>([]);
   // userId -> currently focusing (online + Pomodoro running). Live and cross-group.
   const [focusingMap, setFocusingMap] = useState<Record<string, boolean>>({});
 
@@ -109,26 +113,27 @@ export default function GroupDetailPage() {
     return () => { cancelled = true; };
   }, [groupId]);
 
-  // Fetch leaderboard
+  // Fetch the current competition week's ranking. This drives both the member
+  // list order and the displayed "weekly group study hours" badge.
+  const loadWeeklyRanking = useCallback(async (id: string) => {
+    try {
+      const { ranking } = await getWeeklyGroupRanking(id);
+      setWeeklyRanking(ranking);
+      void cacheSet(groupWeeklyRankingKey(id), ranking);
+    } catch {
+      // Offline / unreachable — fall back to the last cached weekly ranking so
+      // members stay ranked by their last-known weekly study time.
+      const cached = await cacheGet<WeeklyRankingEntry[]>(groupWeeklyRankingKey(id), {
+        allowStale: true,
+      });
+      if (cached) setWeeklyRanking(cached.value);
+    }
+  }, []);
+
   useEffect(() => {
     if (!groupId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { leaderboard: lb } = await getGroupLeaderboard(groupId);
-        if (!cancelled) setLeaderboard(lb);
-        void cacheSet(groupLeaderboardKey(groupId), lb);
-      } catch {
-        // Offline / unreachable — fall back to the last cached leaderboard so
-        // members stay ranked by their last-known study time.
-        const cached = await cacheGet<LeaderboardEntry[]>(groupLeaderboardKey(groupId), {
-          allowStale: true,
-        });
-        if (!cancelled && cached) setLeaderboard(cached.value);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [groupId]);
+    void loadWeeklyRanking(groupId);
+  }, [groupId, loadWeeklyRanking]);
 
   // Socket.IO group presence + leaderboard
   useEffect(() => {
@@ -146,7 +151,10 @@ export default function GroupDetailPage() {
       });
       onLeaderboard((data) => {
         if (data.groupId === groupId) {
-          setLeaderboard(data.leaderboard);
+          // The Socket.IO broadcast carries the all-time board; the weekly
+          // ranking changes on the same session-submit events, so refresh it
+          // through the existing live signal instead of adding a socket event.
+          void loadWeeklyRanking(groupId);
         }
       });
       onFocusing((data) => {
@@ -171,7 +179,7 @@ export default function GroupDetailPage() {
         /* Socket already gone. */
       }
     };
-  }, [groupId]);
+  }, [groupId, loadWeeklyRanking]);
 
   // Track the active group for Pomodoro integration. The Connect sync itself is
   // started app-wide by PomodoroTimerService so focusing keeps propagating even
@@ -307,20 +315,20 @@ export default function GroupDetailPage() {
   const onlineIds = new Set(presenceUsers.map((p) => p.userId));
   const isFocusing = (memberId: string) => focusingMap[memberId] === true && onlineIds.has(memberId);
 
-  // Build a map from userId to totalSeconds for quick lookup
-  const totalMap = new Map<string, number>();
-  for (const entry of leaderboard) {
-    totalMap.set(entry.userId, entry.totalSeconds);
+  // Build a map from userId to this week's study seconds for quick lookup.
+  const weeklyMap = new Map<string, number>();
+  for (const entry of weeklyRanking) {
+    weeklyMap.set(entry.userId, entry.weeklySeconds);
   }
 
-  // Sort members by the all-time leaderboard order, which is already sorted
-  // server-side by total study hours descending (ties broken by userId). So the
-  // highest-total-hours user is always first / Rank #1. Members not present in
-  // the leaderboard (shouldn't happen but fallback) appear at the end.
-  const memberOrder = leaderboard.map((e) => e.userId);
+  // Sort members by the current week's ranking, which is already sorted
+  // server-side by weekly study hours descending (ties broken by userId). So the
+  // highest weekly-hours user is always first / Rank #1. Members not present in
+  // the ranking (shouldn't happen but fallback) appear at the end.
+  const weeklyRankOrder = weeklyRanking.map((e) => e.userId);
   const sortedMembers = [...group.members].sort((a, b) => {
-    const ia = memberOrder.indexOf(a.id);
-    const ib = memberOrder.indexOf(b.id);
+    const ia = weeklyRankOrder.indexOf(a.id);
+    const ib = weeklyRankOrder.indexOf(b.id);
     if (ia !== -1 && ib !== -1) return ia - ib;
     if (ia !== -1) return -1;
     if (ib !== -1) return 1;
@@ -440,7 +448,7 @@ export default function GroupDetailPage() {
               // An ADMIN can remove any other member — including the OWNER and
               // other ADMINS — but never themselves. (Matches backend rule.)
               const canRemove = isAdmin && m.id !== myId;
-              const totalSeconds = totalMap.get(m.id) ?? 0;
+              const totalSeconds = weeklyMap.get(m.id) ?? 0;
               return (
                 <GroupMemberRow
                   key={m.id}
