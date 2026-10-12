@@ -309,7 +309,6 @@ export default function GroupDetailPage() {
   // Leave is only meaningful when the user is actually a member.
   const canLeave = group.isMember !== false;
   const myId = user?.id;
-  const groupImageUrl = group.imageUrl ? (group.imageUrl.startsWith('http') ? group.imageUrl : `${API_BASE}${group.imageUrl}`) : null;
   // Internal "online" set (used ONLY to determine whether Focusing is valid;
   // never rendered as a standalone indicator).
   const onlineIds = new Set(presenceUsers.map((p) => p.userId));
@@ -357,9 +356,9 @@ export default function GroupDetailPage() {
           <div className="relative">
             <div className="flex items-start gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white shadow-md flex items-center justify-center shrink-0 overflow-hidden">
-                {groupImageUrl ? (
+                {group.imageUrl ? (
                   <CachedImage
-                    src={groupImageUrl}
+                    src={group.imageUrl}
                     alt={group.name}
                     className="w-full h-full object-cover"
                     fallback={<Users className="w-7 h-7" />}
