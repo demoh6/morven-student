@@ -18,6 +18,7 @@ const socket = vi.hoisted(() => ({
   onPresence: vi.fn(),
   onLeaderboard: vi.fn(),
   onFocusing: vi.fn(),
+  onGroupUpdate: vi.fn(),
 }));
 const pomodoro = vi.hoisted(() => ({ setActiveGroupId: vi.fn() }));
 const auth = vi.hoisted(() => ({ user: { id: 'me', role: 'USER' } }));

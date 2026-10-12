@@ -369,3 +369,27 @@ export function broadcastLeaderboard(groupId: string, leaderboard: unknown[]) {
 export function emitToUser(userId: string, event: string, payload: unknown) {
   connectNsRef?.to(`user:${userId}`).emit(event, payload);
 }
+
+// Broadcast a group's updated details (name / description / imageUrl) so every
+// authorized member's already-open views converge without a manual refresh.
+// Sent both to the group's presence room (members currently viewing the group)
+// and to each member's personal room (members anywhere in the app). Best-effort:
+// the persisted row remains the source of truth, so a missed event just means
+// the client refreshes on next navigation.
+export async function broadcastGroupUpdate(groupId: string, group: unknown): Promise<void> {
+  const ns = connectNsRef;
+  if (!ns) return;
+  const payload = { groupId, group };
+  ns.to(`group:${groupId}`).emit("group-update", payload);
+  try {
+    const members = await prisma.groupMember.findMany({
+      where: { groupId },
+      select: { userId: true },
+    });
+    for (const m of members) {
+      ns.to(`user:${m.userId}`).emit("group-update", payload);
+    }
+  } catch {
+    /* best-effort */
+  }
+}

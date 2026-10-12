@@ -29,6 +29,20 @@ export interface ServerNotificationPayload {
   read: boolean;
 }
 
+/** Payload for a group content change (name / description / imageUrl) pushed to
+ *  every authorized member so open views converge without a manual refresh. */
+export interface GroupUpdatePayload {
+  groupId: string;
+  group: {
+    id: string;
+    name: string;
+    description: string | null;
+    imageUrl?: string | null;
+    updatedAt?: string;
+    [key: string]: unknown;
+  };
+}
+
 let socket: Socket | null = null;
 let currentGroupId: string | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -38,6 +52,7 @@ type UserEventCallback = (data: { groupId: string; user: { userId: string; usern
 type LeaderboardCallback = (data: { groupId: string; leaderboard: LeaderboardEntry[] }) => void;
 type FocusingCallback = (data: { groupId: string; userId: string; focusing: boolean }) => void;
 type NotificationCallback = (data: { notification: ServerNotificationPayload }) => void;
+type GroupUpdateCallback = (data: GroupUpdatePayload) => void;
 
 let onPresenceUpdate: PresenceCallback | null = null;
 let onUserJoined: UserEventCallback | null = null;
@@ -45,6 +60,7 @@ let onUserLeft: UserEventCallback | null = null;
 let onLeaderboardUpdate: LeaderboardCallback | null = null;
 let onFocusingUpdate: FocusingCallback | null = null;
 let onNotificationEvent: NotificationCallback | null = null;
+let onGroupUpdateEvent: GroupUpdateCallback | null = null;
 
 /** Listeners invoked every time the socket (re)connects. */
 let reconnectListeners: (() => void)[] = [];
@@ -115,6 +131,13 @@ export function connectSocket(): Socket {
 
   socket.on('notification:new', (data: { notification: ServerNotificationPayload }) => {
     onNotificationEvent?.(data);
+  });
+
+  // Group content changes are delivered both to the group room and to each
+  // member's personal room, so they arrive even when the member is not currently
+  // viewing the group (e.g. sitting on the groups list). No currentGroupId gate.
+  socket.on('group-update', (data: GroupUpdatePayload) => {
+    onGroupUpdateEvent?.(data);
   });
 
   socket.on('disconnect', () => {
@@ -199,6 +222,12 @@ export function onFocusing(callback: FocusingCallback) {
 
 export function onNotification(callback: NotificationCallback | null) {
   onNotificationEvent = callback;
+}
+
+/** Subscribe to group content updates (name / description / imageUrl). Pass
+ *  `null` to clear. Fires for any group the user belongs to. */
+export function onGroupUpdate(callback: GroupUpdateCallback | null) {
+  onGroupUpdateEvent = callback;
 }
 
 /**

@@ -4,8 +4,6 @@ import helmet from "helmet";
 import { createHttpCorsOptions } from "./cors";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
-import path from "path";
-import fs from "fs";
 import healthRoutes from "./routes/health";
 import convertRoutes from "./routes/convert";
 import compressRoutes from "./routes/compress";
@@ -29,6 +27,8 @@ import pomodoroStatsRoutes from "./routes/pomodoroStats";
 import adhkarProgressRoutes from "./routes/adhkarProgress";
 import userPreferenceRoutes from "./routes/userPreference";
 import adminRoutes from "./routes/admin";
+import { UPLOADS_DIR, ensureUploadsDir } from "./lib/uploads";
+import { getStoredImage } from "./services/imageStore.service";
 
 const app = express();
 
@@ -56,8 +56,7 @@ app.set("trust proxy", trustProxySetting);
 // ---------------------------------------------------------------------------
 // Static file serving for uploads
 // ---------------------------------------------------------------------------
-const UPLOADS_DIR = path.resolve(__dirname, "..", "uploads");
-try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch { /* ignore */ }
+ensureUploadsDir();
 
 // Resource files live under `uploads/resources` and must NEVER be reachable
 // through the public static mount (they are served only via the authenticated
@@ -70,6 +69,27 @@ app.use("/uploads/user-files", (_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 app.use("/uploads", express.static(UPLOADS_DIR, { maxAge: "30d", immutable: true }));
+
+// Durable fallback: the production container filesystem is ephemeral, so a
+// restart/redeploy wipes `uploads/` while the DB keeps referencing
+// "/uploads/<file>" (avoids every group/profile avatar permanently 404-ing).
+// When the disk copy is missing, serve the exact same bytes mirrored in
+// PostgreSQL so the URL contract and cache semantics are unchanged.
+app.use("/uploads", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const relative = req.path.startsWith("/") ? req.path.slice(1) : req.path;
+    // Only top-level uploads (avatars & group images) are mirrored durably;
+    // any nested path is handled by its own route/404 above/below.
+    if (!relative || relative.includes("/")) return next();
+    const stored = await getStoredImage(relative);
+    if (!stored) return next();
+    res.setHeader("Content-Type", stored.mimeType);
+    res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+    res.send(stored.bytes);
+  } catch {
+    next();
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Security headers

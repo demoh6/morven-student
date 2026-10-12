@@ -24,15 +24,16 @@ import {
   onPresence,
   onLeaderboard,
   onFocusing,
+  onGroupUpdate,
   type PresenceUser,
 } from '@/services/socketService';
 import { GroupMemberRow } from '@/pages/connect/Groups/GroupMemberRow';
 import { CachedImage } from '@/components/UI/CachedImage';
+import { normalizeImageUrl } from '@/services/imageCache';
 import { setActiveGroupId } from '@/pages/tools/GeneralTools/Pomodoro/connectPomodoro';
 import { usePomodoroStore } from '@/pages/tools/GeneralTools/Pomodoro/usePomodoroStore';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { isAdminRole } from '@/pages/auth/roles';
-import { API_BASE } from '@/services/apiBase';
 import {
   Users,
   Crown,
@@ -135,6 +136,19 @@ export default function GroupDetailPage() {
     void loadWeeklyRanking(groupId);
   }, [groupId, loadWeeklyRanking]);
 
+  // Refresh the full group detail (e.g. after another member changes the avatar
+  // or name). Kept separate from the initial load so a transient failure never
+  // clears the currently rendered group.
+  const refreshGroup = useCallback(async (id: string) => {
+    try {
+      const { group: g } = await getGroupDetails(id);
+      setGroup(g);
+      void cacheSet(groupDetailKey(id), g);
+    } catch {
+      /* Offline / unreachable — keep the current data. */
+    }
+  }, []);
+
   // Socket.IO group presence + leaderboard
   useEffect(() => {
     if (!groupId) return;
@@ -162,6 +176,11 @@ export default function GroupDetailPage() {
           setFocusingMap((prev) => ({ ...prev, [data.userId]: data.focusing }));
         }
       });
+      // Another member edited the group (e.g. its avatar) — refetch so this
+      // view converges without a manual reload.
+      onGroupUpdate((data) => {
+        if (data.groupId === groupId) void refreshGroup(groupId);
+      });
       // `joinGroup` throws when the socket cannot be established (e.g. offline
       // with no access token). Presence is an enhancement — the page must still
       // render cached group data when it is unavailable.
@@ -179,7 +198,7 @@ export default function GroupDetailPage() {
         /* Socket already gone. */
       }
     };
-  }, [groupId, loadWeeklyRanking]);
+  }, [groupId, loadWeeklyRanking, refreshGroup]);
 
   // Track the active group for Pomodoro integration. The Connect sync itself is
   // started app-wide by PomodoroTimerService so focusing keeps propagating even
@@ -195,7 +214,7 @@ export default function GroupDetailPage() {
     setEditName(group.name);
     setEditDesc(group.description || '');
     setEditImage(null);
-    setEditImagePreview(group.imageUrl ? (group.imageUrl.startsWith('http') ? group.imageUrl : `${API_BASE}${group.imageUrl}`) : null);
+    setEditImagePreview(normalizeImageUrl(group.imageUrl));
     setEditRemoveImage(false);
     setShowEdit(true);
   };

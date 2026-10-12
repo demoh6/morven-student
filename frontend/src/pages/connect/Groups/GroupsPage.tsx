@@ -7,6 +7,7 @@ import { Modal } from '@/components/UI/Modal';
 import { EmptyState } from '@/components/UI/EmptyState';
 import { StudyGroupCard } from '@/pages/connect/Groups/StudyGroupCard';
 import { listGroups, createGroup, joinGroup, type Group } from '@/services/groupApi';
+import { connectSocket, onGroupUpdate } from '@/services/socketService';
 import { cacheGet, cacheSet } from '@/services/offlineCache';
 import { userFacingMessage } from '@/services/apiError';
 import { Users, Plus, LogIn, ChevronLeft, ImagePlus, X } from 'lucide-react';
@@ -55,6 +56,18 @@ export default function GroupsPage() {
   };
 
   useEffect(() => { loadGroups(); }, []);
+
+  // Keep the list in sync when a group the user belongs to is edited elsewhere
+  // (e.g. a member changes the group avatar). Delivered via the user's personal
+  // socket room, so it works even while the user is not viewing that group.
+  useEffect(() => {
+    try {
+      connectSocket();
+      onGroupUpdate(() => { void loadGroups(); });
+    } catch {
+      /* Offline / not authenticated — the list still loads on mount. */
+    }
+  }, []);
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();

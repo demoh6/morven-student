@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
 import fs from "fs";
-import path from "path";
 import {
   createGroupSchema,
   joinGroupSchema,
@@ -19,6 +18,9 @@ import {
 } from "../services/group.service";
 import { authenticate } from "../middleware/auth";
 import { uploadAvatar } from "../middleware/uploadAvatar";
+import { diskPathFromPublicUrl } from "../lib/uploads";
+import { persistStoredImage, deleteStoredImageByUrl } from "../services/imageStore.service";
+import { broadcastGroupUpdate } from "../services/presence.service";
 
 const router = Router();
 
@@ -31,10 +33,31 @@ function handleGroupError(err: unknown, res: Response): void {
   res.status(500).json({ error: "حدث خطأ في الخادم" });
 }
 
-function deleteFileIfExists(filePath: string) {
-  if (!filePath || !filePath.startsWith("/uploads/")) return;
-  const full = path.resolve(__dirname, "../..", filePath.slice(1));
+/** Remove a public upload from the local disk (best effort; the durable copy
+ *  is handled separately by removeImageEverywhere). */
+function deleteFileIfExists(imageUrl: string | null | undefined) {
+  const full = diskPathFromPublicUrl(imageUrl);
+  if (!full) return;
   try { fs.unlinkSync(full); } catch { /* ignore */ }
+}
+
+/** Delete both the disk copy and the durable PostgreSQL copy of a public image. */
+async function removeImageEverywhere(imageUrl: string | null | undefined) {
+  deleteFileIfExists(imageUrl);
+  await deleteStoredImageByUrl(imageUrl);
+}
+
+/** Durably persist a freshly written upload; on failure clean up the disk file
+ *  so callers never keep a dangling reference. Returns the public URL. */
+async function persistUpload(file: Express.Multer.File): Promise<string> {
+  const imageUrl = `/uploads/${file.filename}`;
+  try {
+    await persistStoredImage(file.filename, file.mimetype);
+  } catch (err) {
+    deleteFileIfExists(imageUrl);
+    throw err;
+  }
+  return imageUrl;
 }
 
 // POST /api/groups — create a new group
@@ -43,15 +66,21 @@ router.post("/api/groups", authenticate, uploadAvatar.single("image"), async (re
     if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
 
     const body = { ...req.body };
-    if (req.file) {
-      body.imageUrl = `/uploads/${req.file.filename}`;
+    const uploadUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
+    if (uploadUrl) {
+      body.imageUrl = uploadUrl;
     }
 
     const parsed = createGroupSchema.safeParse(body);
     if (!parsed.success) {
+      if (uploadUrl) deleteFileIfExists(uploadUrl);
       res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
+
+    // Mirror the bytes durably only after the payload validated, so a rejected
+    // request never leaves an orphaned image row behind.
+    if (req.file) await persistUpload(req.file);
 
     const group = await createGroup(req.user.sub, req.user.role, parsed.data);
     res.status(201).json({ group });
@@ -124,8 +153,8 @@ router.delete("/api/groups/:groupId", authenticate, async (req: Request<{ groupI
 
     await deleteGroup(req.params.groupId, req.user.sub, req.user.role);
 
-    // Delete group image file
-    if (group?.imageUrl) deleteFileIfExists(group.imageUrl);
+    // Delete group image (disk + durable copy) after the row is gone.
+    if (group?.imageUrl) await removeImageEverywhere(group.imageUrl);
 
     res.json({ message: "تم حذف المجموعة بنجاح" });
   } catch (err) {
@@ -172,8 +201,9 @@ router.patch("/api/groups/:groupId", authenticate, uploadAvatar.single("image"),
     const oldGroup = await prisma.group.findUnique({ where: { id: req.params.groupId }, select: { imageUrl: true } });
 
     const body = { ...req.body };
-    if (req.file) {
-      body.imageUrl = `/uploads/${req.file.filename}`;
+    const uploadUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
+    if (uploadUrl) {
+      body.imageUrl = uploadUrl;
     }
     if (body.removeImage === "true") {
       body.imageUrl = null;
@@ -182,16 +212,26 @@ router.patch("/api/groups/:groupId", authenticate, uploadAvatar.single("image"),
 
     const parsed = updateGroupSchema.safeParse(body);
     if (!parsed.success) {
+      if (uploadUrl) deleteFileIfExists(uploadUrl);
       res.status(400).json({ error: parsed.error.issues[0].message });
       return;
     }
 
+    // Mirror new bytes durably *before* committing the DB update, so the group
+    // never references an image that only exists on the ephemeral disk. On
+    // failure the request aborts and the previous avatar stays intact.
+    if (req.file) await persistUpload(req.file);
+
     const group = await updateGroup(req.params.groupId, req.user.sub, req.user.role, parsed.data);
 
-    // Delete old group image file if it was replaced or removed
+    // Delete the previous image (disk + durable copy) only after the row now
+    // references the replacement/removal — never on a failed update.
     if (oldGroup?.imageUrl && body.imageUrl !== undefined && oldGroup.imageUrl !== body.imageUrl) {
-      deleteFileIfExists(oldGroup.imageUrl);
+      await removeImageEverywhere(oldGroup.imageUrl);
     }
+
+    // Propagate the change to every authorized member so open views converge.
+    void broadcastGroupUpdate(req.params.groupId, group).catch(() => {});
 
     res.json({ group });
   } catch (err) {
@@ -207,16 +247,21 @@ router.post("/api/profile/avatar", authenticate, uploadAvatar.single("avatar"), 
 
     const { default: prisma } = await import("../lib/prisma");
 
-    // Delete old avatar file if replacing
     const existing = await prisma.profile.findUnique({ where: { userId: req.user.sub }, select: { avatarUrl: true } });
-    if (existing?.avatarUrl) deleteFileIfExists(existing.avatarUrl);
 
-    const avatarUrl = `/uploads/${req.file.filename}`;
+    // Store the new avatar durably first; only then commit the DB row and drop
+    // the previous one. A failed upload therefore never destroys the current
+    // avatar (previously the old file was deleted before the new row was saved).
+    const avatarUrl = await persistUpload(req.file);
     await prisma.profile.upsert({
       where: { userId: req.user.sub },
       update: { avatarUrl },
       create: { userId: req.user.sub, avatarUrl },
     });
+
+    if (existing?.avatarUrl && existing.avatarUrl !== avatarUrl) {
+      await removeImageEverywhere(existing.avatarUrl);
+    }
 
     res.json({ avatarUrl });
   } catch (err) {
@@ -232,15 +277,17 @@ router.delete("/api/profile/avatar", authenticate, async (req: Request, res: Res
 
     const { default: prisma } = await import("../lib/prisma");
 
-    // Delete file from disk
     const existing = await prisma.profile.findUnique({ where: { userId: req.user.sub }, select: { avatarUrl: true } });
-    if (existing?.avatarUrl) deleteFileIfExists(existing.avatarUrl);
 
+    // Clear the reference first so a failed cleanup can never leave the profile
+    // pointing at a deleted file.
     await prisma.profile.upsert({
       where: { userId: req.user.sub },
       update: { avatarUrl: null },
       create: { userId: req.user.sub, avatarUrl: null },
     });
+
+    if (existing?.avatarUrl) await removeImageEverywhere(existing.avatarUrl);
 
     res.json({ message: "تم حذف الصورة" });
   } catch (err) {

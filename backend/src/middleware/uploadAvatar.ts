@@ -1,9 +1,8 @@
 import multer from "multer";
 import path from "path";
-import fs from "fs";
+import { UPLOADS_DIR, ensureUploadsDir } from "../lib/uploads";
 
-const UPLOADS_DIR = path.resolve(__dirname, "..", "..", "uploads");
-try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch { /* ignore */ }
+ensureUploadsDir();
 
 const ALLOWED_MIMES = new Set([
   "image/jpeg", "image/png", "image/webp", "image/gif",
@@ -34,4 +33,4 @@ export const uploadAvatar = multer({
   fileFilter: avatarFilter,
 });
 
-export const UPLOADS_PUBLIC = "/uploads";
+export { UPLOADS_PUBLIC } from "../lib/uploads";

@@ -246,6 +246,24 @@ model GroupMember {
   @@map("group_members")
 }
 
+// Durable store for uploaded avatar & group images. Keeps the existing
+// "/uploads/<filename>" URL contract intact, but the bytes live in PostgreSQL
+// (the durable datastore) instead of the ephemeral container filesystem that a
+// production restart/redeploy wipes. The local file on disk remains only as a
+// fast path; when it is missing the static middleware falls back to these rows.
+// Only public top-level uploads (avatars, group images) are persisted here —
+// resource and user-file blobs keep their own privileged, non-public paths.
+model StoredImage {
+  id        String   @id @default(uuid())
+  filename  String   @unique
+  mimeType  String   @map("mime_type")
+  bytes     Bytes
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("stored_images")
+}
+
 model PomodoroSession {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
