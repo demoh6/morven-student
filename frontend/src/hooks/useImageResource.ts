@@ -133,8 +133,12 @@ export function useImageResource(source: string | null | undefined): ImageResour
       // offline afterwards, without waiting for an <img> load event that may
       // never fire. Also render from the freshly cached bytes.
       const fetched = await prefetchImageBytes(normalized);
-      if (!fetched || !mountedRef.current || token !== tokenRef.current) return;
-      setSrc(getOrCreateObjectUrl(normalized, fetched));
+      if (!mountedRef.current || token !== tokenRef.current) return;
+      if (fetched) {
+        setSrc(getOrCreateObjectUrl(normalized, fetched));
+      }
+      // If prefetch didn't return bytes (e.g., failed or was cached), we already have cached bytes checked
+      // or we still have the network URL set; don't change state
     })();
 
     return () => {
@@ -184,6 +188,14 @@ export function useImageResource(source: string | null | undefined): ImageResour
           setSrc(getOrCreateObjectUrl(url, bytes));
           return;
         }
+      }
+
+      // Try prefetch again in case it hasn't completed yet
+      const bytesFromPrefetch = await getImageBytes(url);
+      if (bytesFromPrefetch && stillCurrent()) {
+        setFallback(false);
+        setSrc(getOrCreateObjectUrl(url, bytesFromPrefetch));
+        return;
       }
 
       // 2. Offline: nothing to probe — fall back and wait for reconnect.
