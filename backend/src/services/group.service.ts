@@ -3,6 +3,7 @@ import crypto from "crypto";
 import prisma from "../lib/prisma";
 import { isAdminRole } from "../lib/roles";
 import { Prisma, GroupRole } from "@prisma/client";
+import { reconcilePomodoroStats } from "./pomodoroStats.service";
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -125,6 +126,11 @@ export async function createGroup(userId: string, userRole: string, input: z.inf
     return g;
   });
 
+  // Ensure the creator's existing personal hours are represented by the
+  // canonical counters (idempotent; safe to retry). Derivation at read time
+  // already reflects them, so a failure here must not block group creation.
+  await reconcilePomodoroStats(userId).catch(() => {});
+
   return sanitizeGroup(group);
 }
 
@@ -145,9 +151,27 @@ export async function joinGroup(userId: string, userRole: string, joinCode: stri
     throw new GroupError("لقد وصلت إلى الحد الأقصى من المجموعات (3)", 400);
   }
 
-  await prisma.groupMember.create({
-    data: { groupId: group.id, userId, role: "MEMBER" },
-  });
+  try {
+    await prisma.groupMember.create({
+      data: { groupId: group.id, userId, role: "MEMBER" },
+    });
+  } catch (err) {
+    // Two simultaneous join requests can both pass the `existing` check above;
+    // the unique (groupId, userId) constraint then rejects the second one.
+    // Treat that race as the same "already a member" outcome rather than a 500.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new GroupError("أنت عضو بالفعل في هذه المجموعة", 409);
+    }
+    throw err;
+  }
+
+  // Join-time synchronization: reconcile the user's canonical personal totals
+  // against their session log so the new group immediately reflects every hour
+  // already accumulated (including hours earned before any group existed and
+  // hours recorded under other groups). Idempotent and retry-safe; the
+  // leaderboards also derive from the same per-user source at read time, so a
+  // failure here cannot make the group incoherent.
+  await reconcilePomodoroStats(userId).catch(() => {});
 
   return sanitizeGroup(group);
 }

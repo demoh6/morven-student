@@ -100,6 +100,46 @@ export async function recordMyPomodoroSession(
 }
 
 /**
+ * Reconcile a user's personal lifetime counters against their personal session
+ * log. Element-wise MAX (never lowers a value), so:
+ *   - it backfills a missing / stale `PomodoroStats` row from the user's existing
+ *     `PomodoroSession` records (legacy accounts, or rows predating the counter),
+ *   - it is idempotent and safe to retry (running it twice converges),
+ *   - it never double-counts: the session aggregate is taken once and MAX-merged
+ *     into the counter, so repeated runs cannot increase the total.
+ *
+ * Called on group membership creation so a newly-joined member's already
+ * accumulated personal hours are reflected immediately and consistently.
+ */
+export async function reconcilePomodoroStats(userId: string) {
+  const [agg, existing] = await Promise.all([
+    prisma.pomodoroSession.aggregate({
+      where: { userId },
+      _sum: { durationSeconds: true },
+      _count: { _all: true },
+    }),
+    prisma.pomodoroStats.findUnique({ where: { userId } }),
+  ]);
+
+  const sessionSeconds = agg._sum.durationSeconds ?? 0;
+  const sessionCount = agg._count._all ?? 0;
+  const totalFocusSeconds = Math.max(existing?.totalFocusSeconds ?? 0, sessionSeconds);
+  const completedSessions = Math.max(existing?.completedSessions ?? 0, sessionCount);
+
+  const stats = await prisma.pomodoroStats.upsert({
+    where: { userId },
+    update: { totalFocusSeconds, completedSessions },
+    create: {
+      userId,
+      totalFocusSeconds,
+      completedSessions,
+      lastFocusSeconds: existing?.lastFocusSeconds ?? 0,
+    },
+  });
+  return serializePomodoroStats(stats);
+}
+
+/**
  * Merge a guest device's lifetime counters into the account row using
  * element-wise MAX. Deterministic and idempotent on retry; never reduces an
  * existing value, so concurrent migrations from multiple devices cannot

@@ -65,13 +65,19 @@ describe("Pomodoro Competition", () => {
     assert.equal(res.body.userTotalSeconds, 1500);
   });
 
-  it("prevents duplicate sessionId submissions", async () => {
+  it("is idempotent for a repeated sessionId (never double-credits)", async () => {
     const { accessToken } = await registerUser(server.baseUrl, `dup-${Date.now()}`);
     const { group } = await createGroup(server.baseUrl, accessToken, "Dup Group");
-    await submitSession(server.baseUrl, accessToken, group.id, 1200, "dup-session-1");
-    const res = await submitSession(server.baseUrl, accessToken, group.id, 1200, "dup-session-1");
-    assert.equal(res.status, 409);
-    assert.ok(res.body.error.includes("تم تسجيل"));
+    const sid = `dup-session-${Date.now()}`;
+    const first = await submitSession(server.baseUrl, accessToken, group.id, 1200, sid);
+    assert.equal(first.status, 201);
+    const res = await submitSession(server.baseUrl, accessToken, group.id, 1200, sid);
+    // Retry / cross-group fan-out of the SAME completed session is a no-op that
+    // returns the stored row instead of a new credit.
+    assert.equal(res.status, 201);
+    assert.equal(res.body.duplicate, true);
+    assert.equal(res.body.session.id, first.body.session.id);
+    assert.equal(res.body.userTotalSeconds, first.body.userTotalSeconds);
   });
 
   it("rejects sessions from non-members", async () => {

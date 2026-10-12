@@ -1,8 +1,7 @@
 import { Router, Request, Response } from "express";
-import { submitPomodoroSchema, submitPomodoroSession, getGroupLeaderboard, getWeeklyGroupRanking, verifyMembership } from "../services/pomodoro.service";
+import { submitPomodoroSchema, submitPomodoroSession, getGroupLeaderboard, getWeeklyGroupRanking, verifyMembership, broadcastUserGroupLeaderboards } from "../services/pomodoro.service";
 import { GroupError } from "../services/group.service";
 import { authenticate } from "../middleware/auth";
-import { broadcastLeaderboard } from "../services/presence.service";
 
 const router = Router();
 
@@ -34,11 +33,11 @@ router.post("/api/pomodoro/submit", authenticate, async (req: Request, res: Resp
       sessionId,
     );
 
-    // Broadcast updated leaderboard to group members via Socket.IO
-    try {
-      const leaderboard = await getGroupLeaderboard(groupId);
-      broadcastLeaderboard(groupId, leaderboard);
-    } catch { /* broadcast is best-effort */ }
+    // Broadcast the updated leaderboard to EVERY group the user belongs to
+    // (focus time is personal, so all of them changed), best-effort only —
+    // the database is already authoritative and a missed event self-heals on
+    // the next fetch.
+    await broadcastUserGroupLeaderboards(req.user.sub);
 
     res.status(201).json(result);
   } catch (err) {

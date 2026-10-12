@@ -264,19 +264,29 @@ model StoredImage {
   @@map("stored_images")
 }
 
+// A personal, group-independent focus-session log. One row is written per
+// completed focus interval, keyed by a globally unique `sessionId` so a retried
+// submit (or the client's cross-group fan-out) can never double-credit time.
+//
+// `groupId` records the group that was active when the session completed. It is
+// intentionally NULLABLE with ON DELETE SET NULL: group rankings are derived at
+// the USER level (every group derives from the same per-user records), so a
+// group being deleted must never destroy the user's personal focus history.
 model PomodoroSession {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
-  groupId         String   @map("group_id")
+  groupId         String?  @map("group_id")
   durationSeconds Int      @map("duration_seconds")
   completedAt     DateTime @default(now()) @map("completed_at")
   sessionId       String   @unique @map("session_id")
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group           Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group           Group?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@index([groupId])
   @@index([userId, groupId])
   @@index([groupId, completedAt])
+  // User-level weekly ranking scans a single user's sessions by completion time.
+  @@index([userId, completedAt])
   @@map("pomodoro_sessions")
 }
 

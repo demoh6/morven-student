@@ -1,6 +1,7 @@
 import { z } from "zod";
 import prisma from "../lib/prisma";
 import { GroupError, isGlobalAdmin } from "./group.service";
+import { broadcastLeaderboard } from "./presence.service";
 import { getWeekBounds } from "./week.service";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,30 @@ export async function verifyMembership(userId: string, groupId: string, userRole
   }
 }
 
+/**
+ * A user's accumulated personal focus time derived from the session log,
+ * aggregated across ALL groups (focus time is personal, not group-owned).
+ */
+async function userSessionTotalSeconds(userId: string): Promise<number> {
+  const userTotal = await prisma.pomodoroSession.aggregate({
+    where: { userId },
+    _sum: { durationSeconds: true },
+  });
+  return userTotal._sum.durationSeconds ?? 0;
+}
+
+function serializeSubmittedSession(session: {
+  id: string;
+  durationSeconds: number;
+  completedAt: Date;
+}) {
+  return {
+    id: session.id,
+    durationSeconds: session.durationSeconds,
+    completedAt: session.completedAt.toISOString(),
+  };
+}
+
 export async function submitPomodoroSession(
   userId: string,
   groupId: string,
@@ -40,37 +65,53 @@ export async function submitPomodoroSession(
   // Verify membership (also throws 404 if group does not exist)
   await verifyMembership(userId, groupId);
 
-  // Check duplicate
+  // Idempotent write: `sessionId` is globally unique, so a client retry, a
+  // reconnect, or the cross-group fan-out can never credit the same completed
+  // session twice. A duplicate for the SAME user returns the stored row; a
+  // session id already owned by ANOTHER user is rejected.
   const existing = await prisma.pomodoroSession.findUnique({
     where: { sessionId },
   });
   if (existing) {
-    throw new GroupError("تم تسجيل هذه الجلسة مسبقاً", 409);
+    if (existing.userId !== userId) {
+      throw new GroupError("تم تسجيل هذه الجلسة مسبقاً", 409);
+    }
+    return {
+      session: serializeSubmittedSession(existing),
+      userTotalSeconds: await userSessionTotalSeconds(userId),
+      duplicate: true,
+    };
   }
 
-  // Store session
-  const session = await prisma.pomodoroSession.create({
-    data: {
-      userId,
-      groupId,
-      durationSeconds,
-      sessionId,
-    },
-  });
-
-  // Calculate this user's new total for the group
-  const userTotal = await prisma.pomodoroSession.aggregate({
-    where: { userId, groupId },
-    _sum: { durationSeconds: true },
-  });
+  let session;
+  try {
+    session = await prisma.pomodoroSession.create({
+      data: {
+        userId,
+        groupId,
+        durationSeconds,
+        sessionId,
+      },
+    });
+  } catch (err) {
+    // Concurrent duplicate (unique constraint race) — converge on the winner
+    // instead of double-crediting or surfacing a spurious error.
+    if ((err as { code?: string }).code === "P2002") {
+      const winner = await prisma.pomodoroSession.findUnique({ where: { sessionId } });
+      if (winner && winner.userId === userId) {
+        return {
+          session: serializeSubmittedSession(winner),
+          userTotalSeconds: await userSessionTotalSeconds(userId),
+          duplicate: true,
+        };
+      }
+    }
+    throw err;
+  }
 
   return {
-    session: {
-      id: session.id,
-      durationSeconds: session.durationSeconds,
-      completedAt: session.completedAt.toISOString(),
-    },
-    userTotalSeconds: userTotal._sum.durationSeconds ?? 0,
+    session: serializeSubmittedSession(session),
+    userTotalSeconds: await userSessionTotalSeconds(userId),
   };
 }
 
@@ -82,8 +123,23 @@ export interface LeaderboardEntry {
   totalSeconds: number;
 }
 
+/**
+ * The user's canonical personal lifetime focus total. The personal counter
+ * (`PomodoroStats.totalFocusSeconds`) and the personal session log are two
+ * views of the same activity; taking the element-wise MAX guarantees we never
+ * lose hours recorded by either path (legacy counter-only accounts, offline
+ * sessions that only reached the log, etc.) and that the value is identical in
+ * every group the user belongs to.
+ */
+function personalLifetimeSeconds(
+  statsTotal: number | null | undefined,
+  sessionTotal: number,
+): number {
+  return Math.max(statsTotal ?? 0, sessionTotal);
+}
+
 export async function getGroupLeaderboard(groupId: string): Promise<LeaderboardEntry[]> {
-  // Get all members with their user info
+  // Get all members with their user info + canonical personal total
   const members = await prisma.groupMember.findMany({
     where: { groupId },
     include: {
@@ -93,17 +149,24 @@ export async function getGroupLeaderboard(groupId: string): Promise<LeaderboardE
           username: true,
           displayName: true,
           profile: { select: { avatarUrl: true } },
+          pomodoroStats: { select: { totalFocusSeconds: true } },
         },
       },
     },
   });
 
-  // Get aggregated focus time per user
-  const aggregates = await prisma.pomodoroSession.groupBy({
-    by: ["userId"],
-    where: { groupId },
-    _sum: { durationSeconds: true },
-  });
+  const memberIds = members.map((m) => m.user.id);
+
+  // Aggregate each member's focus time across ALL groups (NOT scoped to this
+  // group). Focus time is personal, so every group shows the same total and a
+  // newly joined group immediately reflects the member's existing hours.
+  const aggregates = memberIds.length
+    ? await prisma.pomodoroSession.groupBy({
+        by: ["userId"],
+        where: { userId: { in: memberIds } },
+        _sum: { durationSeconds: true },
+      })
+    : [];
 
   const totalMap = new Map<string, number>();
   for (const agg of aggregates) {
@@ -116,7 +179,10 @@ export async function getGroupLeaderboard(groupId: string): Promise<LeaderboardE
     username: m.user.username,
     displayName: m.user.displayName,
     avatarUrl: m.user.profile?.avatarUrl ?? null,
-    totalSeconds: totalMap.get(m.user.id) ?? 0,
+    totalSeconds: personalLifetimeSeconds(
+      m.user.pomodoroStats?.totalFocusSeconds,
+      totalMap.get(m.user.id) ?? 0,
+    ),
   }));
 
   leaderboard.sort((a, b) => {
@@ -127,13 +193,43 @@ export async function getGroupLeaderboard(groupId: string): Promise<LeaderboardE
   return leaderboard;
 }
 
+/**
+ * Best-effort real-time refresh: push the recomputed leaderboard to EVERY group
+ * the user belongs to (not just the group that received the submission), since
+ * a personal focus change affects all of them. Delivery is best-effort only —
+ * the database is already correct and any miss is repaired by the next fetch.
+ */
+export async function broadcastUserGroupLeaderboards(userId: string): Promise<void> {
+  try {
+    const memberships = await prisma.groupMember.findMany({
+      where: { userId },
+      select: { groupId: true },
+    });
+    await Promise.all(
+      memberships.map(async ({ groupId }) => {
+        try {
+          const leaderboard = await getGroupLeaderboard(groupId);
+          broadcastLeaderboard(groupId, leaderboard);
+        } catch {
+          /* best-effort per group */
+        }
+      }),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Weekly Group Ranking
 // ---------------------------------------------------------------------------
 // A per-Group competition scoped to the current competition week
 // (Saturday 00:00 → Friday 23:59:59 in the configured weekly timezone).
-// Totals are derived directly from the existing Pomodoro sessions (the
-// source of truth) filtered by the half-open weekly interval, so:
+// Totals are derived from each member's PERSONAL session log for the week
+// (across all their groups) — the same per-user source every group reads — so
+// the same user has an identical weekly total in each group, while each group
+// still ranks its own member set. Filtering uses the half-open weekly interval,
+// so:
 //   - no personal/global statistics are ever written or reset,
 //   - existing sessions are never deleted or modified,
 //   - concurrent completions cannot corrupt totals (nothing is aggregated
@@ -171,15 +267,22 @@ export async function getWeeklyGroupRanking(
     },
   });
 
-  // Aggregate this week's Pomodoro duration per user within this group.
-  const aggregates = await prisma.pomodoroSession.groupBy({
-    by: ["userId"],
-    where: {
-      groupId,
-      completedAt: { gte: weekStart, lt: nextWeekStart },
-    },
-    _sum: { durationSeconds: true },
-  });
+  const memberIds = members.map((m) => m.user.id);
+
+  // Aggregate this week's Pomodoro duration per user across ALL groups (NOT
+  // scoped to this group). This week's focus activity is personal, so the same
+  // user shows the same weekly total in every group they belong to — a group
+  // joined mid-week immediately reflects the week's activity so far.
+  const aggregates = memberIds.length
+    ? await prisma.pomodoroSession.groupBy({
+        by: ["userId"],
+        where: {
+          userId: { in: memberIds },
+          completedAt: { gte: weekStart, lt: nextWeekStart },
+        },
+        _sum: { durationSeconds: true },
+      })
+    : [];
 
   const weeklyMap = new Map<string, number>();
   for (const agg of aggregates) {

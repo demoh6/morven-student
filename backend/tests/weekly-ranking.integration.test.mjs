@@ -254,23 +254,24 @@ describe("Weekly Group Ranking", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4 + 10. Group isolation + multiple groups
+  // 4 + 10. Cross-group consistency + multiple groups
   // -------------------------------------------------------------------------
 
-  it("keeps weekly totals isolated per group (same user differs across groups)", async () => {
+  it("reports the same weekly hours for a user in every group they belong to", async () => {
     const owner = await register(baseUrl, uniqueSuffix("gown"));
     const peer = await register(baseUrl, uniqueSuffix("gpeer"));
-    const groupA = await createGroup(baseUrl, owner.accessToken, "IsolationA");
-    const groupB = await createGroup(baseUrl, owner.accessToken, "IsolationB");
+    const groupA = await createGroup(baseUrl, owner.accessToken, "ConsistencyA");
+    const groupB = await createGroup(baseUrl, owner.accessToken, "ConsistencyB");
     await joinGroup(baseUrl, peer.accessToken, groupA.joinCode);
     await joinGroup(baseUrl, peer.accessToken, groupB.joinCode);
 
     const tag = uniqueSuffix("iso");
-    // Group A: owner 3600 (1h), peer 7200 (2h). Group B: owner 10800 (3h), peer 14400 (4h).
+    // The same users' personal sessions, recorded while different groups were
+    // active. Focus time is personal, so it must appear identically everywhere.
     await seedSessions([
       { groupId: groupA.id, userId: owner.user.id, durationSeconds: 3600, sessionId: `${tag}-a-own` },
-      { groupId: groupA.id, userId: peer.user.id, durationSeconds: 7200, sessionId: `${tag}-a-peer` },
       { groupId: groupB.id, userId: owner.user.id, durationSeconds: 10800, sessionId: `${tag}-b-own` },
+      { groupId: groupA.id, userId: peer.user.id, durationSeconds: 7200, sessionId: `${tag}-a-peer` },
       { groupId: groupB.id, userId: peer.user.id, durationSeconds: 14400, sessionId: `${tag}-b-peer` },
     ]);
 
@@ -279,18 +280,17 @@ describe("Weekly Group Ranking", () => {
 
     const sum = (rows, uid) => rows.find((e) => e.userId === uid).weeklySeconds;
 
-    // Group A totals only: owner 3600, peer 7200 (A's time never leaks into B).
-    assert.equal(sum(ra, owner.user.id), 3600);
-    assert.equal(sum(ra, peer.user.id), 7200);
-    // Group B totals only: owner 10800, peer 14400.
-    assert.equal(sum(rb, owner.user.id), 10800);
-    assert.equal(sum(rb, peer.user.id), 14400);
-    // Same user has different weekly totals in different groups.
-    assert.equal(sum(ra, owner.user.id), 3600);
-    assert.equal(sum(rb, owner.user.id), 10800);
-    // Ordering within each group respects its own durations.
-    assert.equal(ra[0].userId, peer.user.id); // 7200 > 3600
-    assert.equal(rb[0].userId, peer.user.id); // 14400 > 10800
+    // Each user's weekly total is the sum of ALL their sessions this week —
+    // identical in both groups (owner 3600+10800, peer 7200+14400).
+    assert.equal(sum(ra, owner.user.id), 14400);
+    assert.equal(sum(rb, owner.user.id), 14400);
+    assert.equal(sum(ra, peer.user.id), 21600);
+    assert.equal(sum(rb, peer.user.id), 21600);
+
+    // Positions differ between groups only when the member sets differ; here
+    // both groups share the same members, so the order matches in each.
+    assert.equal(ra[0].userId, peer.user.id); // 21600 > 14400
+    assert.equal(rb[0].userId, peer.user.id);
   });
 
   // -------------------------------------------------------------------------

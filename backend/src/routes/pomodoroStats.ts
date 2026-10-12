@@ -7,6 +7,7 @@ import {
   mergeMyPomodoroStats,
 } from "../services/pomodoroStats.service";
 import { authenticate } from "../middleware/auth";
+import { broadcastUserGroupLeaderboards } from "../services/pomodoro.service";
 
 const router = Router();
 
@@ -50,6 +51,9 @@ router.post(
       }
 
       const stats = await recordMyPomodoroSession(req.user.sub, parsed.data);
+      // The personal lifetime total changed, which affects every group this
+      // user belongs to. Best-effort live refresh (DB already authoritative).
+      await broadcastUserGroupLeaderboards(req.user.sub);
       res.status(201).json({ stats });
     } catch (err) {
       console.error("Record pomodoro session error:", err);
@@ -78,6 +82,7 @@ router.post(
       }
 
       const stats = await mergeMyPomodoroStats(req.user.sub, parsed.data);
+      await broadcastUserGroupLeaderboards(req.user.sub);
       res.json({ stats });
     } catch (err) {
       console.error("Merge pomodoro stats error:", err);
