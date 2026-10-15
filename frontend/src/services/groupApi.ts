@@ -39,6 +39,7 @@ export interface WeeklyRankingEntry {
   displayName: string;
   avatarUrl: string | null;
   weeklySeconds: number;
+  dailySeconds: number;
 }
 
 export interface GroupDetails extends Group {
@@ -141,9 +142,15 @@ export async function getGroupLeaderboard(groupId: string): Promise<{ leaderboar
 export async function getWeeklyGroupRanking(groupId: string): Promise<{
   weekStart: string;
   weekEnd: string;
+  dayStart: string;
+  nextDayStart: string;
   ranking: WeeklyRankingEntry[];
 }> {
-  return authRequest<{ weekStart: string; weekEnd: string; ranking: WeeklyRankingEntry[] }>(
-    `/api/groups/${groupId}/leaderboard/weekly`,
-  );
+  return authRequest<{
+    weekStart: string;
+    weekEnd: string;
+    dayStart: string;
+    nextDayStart: string;
+    ranking: WeeklyRankingEntry[];
+  }>(`/api/groups/${groupId}/leaderboard/weekly`);
 }

@@ -30,7 +30,7 @@ export interface WeekBounds {
   nextWeekStart: Date;
 }
 
-interface CivilDateTime {
+export interface CivilDateTime {
   year: number;
   month: number;
   day: number;
@@ -65,7 +65,7 @@ function getFormatter(timeZone: string): Intl.DateTimeFormat {
 }
 
 /** Wall-clock components of `date` in `timeZone`. */
-function getZonedParts(date: Date, timeZone: string): ZonedParts {
+export function getZonedParts(date: Date, timeZone: string): ZonedParts {
   const map: Record<string, string> = {};
   for (const part of getFormatter(timeZone).formatToParts(date)) {
     map[part.type] = part.value;
@@ -92,7 +92,7 @@ function toUtcCivil(year: number, month: number, day: number, hour: number, minu
  * Iteratively corrects for the zone's UTC offset so DST transitions are
  * handled deterministically.
  */
-function zonedTimeToUtc(civil: CivilDateTime, timeZone: string): Date {
+export function zonedTimeToUtc(civil: CivilDateTime, timeZone: string): Date {
   let guess = toUtcCivil(civil.year, civil.month, civil.day, civil.hour, civil.minute, civil.second);
   // Two or three iterations always converge for normal zone offsets.
   for (let i = 0; i < 4; i++) {

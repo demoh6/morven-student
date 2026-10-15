@@ -3,6 +3,7 @@ import prisma from "../lib/prisma";
 import { GroupError, isGlobalAdmin } from "./group.service";
 import { broadcastLeaderboard } from "./presence.service";
 import { getWeekBounds } from "./week.service";
+import { getDayBounds } from "./day.service";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -245,13 +246,15 @@ export interface WeeklyRankingEntry {
   displayName: string;
   avatarUrl: string | null;
   weeklySeconds: number;
+  dailySeconds: number;
 }
 
 export async function getWeeklyGroupRanking(
   groupId: string,
   now: Date = new Date(),
-): Promise<{ weekStart: Date; weekEnd: Date; ranking: WeeklyRankingEntry[] }> {
+): Promise<{ weekStart: Date; weekEnd: Date; dayStart: Date; nextDayStart: Date; ranking: WeeklyRankingEntry[] }> {
   const { weekStart, weekEnd, nextWeekStart } = getWeekBounds(now);
+  const { dayStart, nextDayStart } = getDayBounds(now);
 
   const members = await prisma.groupMember.findMany({
     where: { groupId },
@@ -269,29 +272,48 @@ export async function getWeeklyGroupRanking(
 
   const memberIds = members.map((m) => m.user.id);
 
-  // Aggregate this week's Pomodoro duration per user across ALL groups (NOT
-  // scoped to this group). This week's focus activity is personal, so the same
-  // user shows the same weekly total in every group they belong to — a group
-  // joined mid-week immediately reflects the week's activity so far.
-  const aggregates = memberIds.length
-    ? await prisma.pomodoroSession.groupBy({
-        by: ["userId"],
-        where: {
-          userId: { in: memberIds },
-          completedAt: { gte: weekStart, lt: nextWeekStart },
-        },
-        _sum: { durationSeconds: true },
-      })
-    : [];
+  // Aggregate this week's and today's Pomodoro duration per user across ALL
+  // groups (NOT scoped to this group). Both periods are personal, so the same
+  // user shows the same totals in every group they belong to — a group joined
+  // mid-week (or mid-day) immediately reflects the activity so far.
+  //
+  // Totals are derived from the immutable, timestamped session log at query
+  // time. There is no mutable per-period counter to drift or double-count, and
+  // the single source is shared exactly with the lifetime/weekly views.
+  const [weeklyAggregates, dailyAggregates] = memberIds.length
+    ? await Promise.all([
+        prisma.pomodoroSession.groupBy({
+          by: ["userId"],
+          where: {
+            userId: { in: memberIds },
+            completedAt: { gte: weekStart, lt: nextWeekStart },
+          },
+          _sum: { durationSeconds: true },
+        }),
+        prisma.pomodoroSession.groupBy({
+          by: ["userId"],
+          where: {
+            userId: { in: memberIds },
+            completedAt: { gte: dayStart, lt: nextDayStart },
+          },
+          _sum: { durationSeconds: true },
+        }),
+      ])
+    : [[], []];
 
   const weeklyMap = new Map<string, number>();
-  for (const agg of aggregates) {
+  for (const agg of weeklyAggregates) {
     weeklyMap.set(agg.userId, agg._sum.durationSeconds ?? 0);
+  }
+  const dailyMap = new Map<string, number>();
+  for (const agg of dailyAggregates) {
+    dailyMap.set(agg.userId, agg._sum.durationSeconds ?? 0);
   }
 
   // Same user/profile conventions as the existing all-time leaderboard, plus
-  // the weekly duration. Sorted by duration descending with a deterministic
-  // tie-breaker (userId ascending).
+  // the weekly and daily durations. Sorted by WEEKLY duration descending with a
+  // deterministic tie-breaker (userId ascending). Daily/lifetime/session
+  // duration are intentionally NOT used for ordering.
   const ranking: WeeklyRankingEntry[] = members
     .map((m) => ({
       userId: m.user.id,
@@ -299,6 +321,7 @@ export async function getWeeklyGroupRanking(
       displayName: m.user.displayName,
       avatarUrl: m.user.profile?.avatarUrl ?? null,
       weeklySeconds: weeklyMap.get(m.user.id) ?? 0,
+      dailySeconds: dailyMap.get(m.user.id) ?? 0,
     }))
     .sort((a, b) => {
       if (b.weeklySeconds !== a.weeklySeconds) return b.weeklySeconds - a.weeklySeconds;
@@ -306,5 +329,5 @@ export async function getWeeklyGroupRanking(
     })
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
-  return { weekStart, weekEnd, ranking };
+  return { weekStart, weekEnd, dayStart, nextDayStart, ranking };
 }

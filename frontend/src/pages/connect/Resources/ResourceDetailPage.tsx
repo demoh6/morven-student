@@ -18,6 +18,8 @@ import {
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import { canManageResource } from '@/pages/connect/Resources/resourcePermissions';
 import { userFacingMessage } from '@/services/apiError';
+import { useIsMobilePhone } from '@/hooks/useIsMobilePhone';
+import { ResourceDetailMobile } from '@/pages/connect/Resources/ResourceDetailMobile';
 import {
   BookOpen,
   ChevronLeft,
@@ -39,6 +41,8 @@ import {
 
 const MAX_FILES = 10;
 
+const MOBILE_DIALOG_CLASS = 'max-sm:max-h-[calc(100dvh-2rem)] max-sm:overflow-y-auto';
+
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0 },
@@ -48,6 +52,7 @@ const fadeUp = {
 export default function ResourceDetailPage() {
   const { resourceId } = useParams<{ resourceId: string }>();
   const navigate = useNavigate();
+  const isMobilePhone = useIsMobilePhone();
 
   const user = useAuthStore((s) => s.user);
   const resources = useResourcesStore((s) => s.resources);
@@ -326,6 +331,224 @@ export default function ResourceDetailPage() {
   };
 
   const viewNote = notes.find((n) => n.id === viewNoteId);
+
+  // All dialogs are defined once here and mounted on BOTH layouts. They portal
+  // to <body> (see Modal), so their position in the tree has no effect on
+  // stacking/centering.
+  const renderDialogs = () => (
+    <>
+      {/* Add Note Modal */}
+      <Modal
+        open={showAddNote}
+        onClose={() => setShowAddNote(false)}
+        title="إضافة ملاحظة"
+        description="أضف ملاحظة جديدة لهذا المورد"
+        className={MOBILE_DIALOG_CLASS}
+      >
+        <form onSubmit={handleAddNote} className="space-y-4">
+          <Input
+            label="عنوان الملاحظة"
+            value={noteTitle}
+            onChange={(e) => setNoteTitle(e.target.value)}
+            required
+            placeholder="مثال: أهم نقاط المراجعة"
+          />
+          <TextArea
+            label="محتوى الملاحظة"
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            placeholder="اكتب محتوى الملاحظة هنا..."
+            className="min-h-[140px]"
+          />
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setShowAddNote(false)} className="flex-1">إلغاء</Button>
+            <Button type="submit" className="flex-1" icon={<Plus className="w-4 h-4" />}>إضافة</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* View Note Modal */}
+      <Modal
+        open={viewNoteId !== null}
+        onClose={() => setViewNoteId(null)}
+        title={viewNote?.title || 'ملاحظة'}
+        className={MOBILE_DIALOG_CLASS}
+      >
+        <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line min-h-[80px]">
+          {viewNote?.content?.trim() ? (
+            viewNote.content
+          ) : (
+            <p className="text-gray-400 dark:text-gray-500">لا يوجد محتوى لهذه الملاحظة.</p>
+          )}
+        </div>
+        <div className="flex gap-3 pt-4 mt-4 border-t border-light-border dark:border-dark-border">
+          <Button type="button" variant="ghost" onClick={() => setViewNoteId(null)} className="flex-1">إغلاق</Button>
+        </div>
+      </Modal>
+
+      {/* Add Link Modal */}
+      <Modal
+        open={showAddLink}
+        onClose={() => setShowAddLink(false)}
+        title="إضافة رابط"
+        description="أضف رابطاً مفيداً لهذا المورد"
+        className={MOBILE_DIALOG_CLASS}
+      >
+        <form onSubmit={handleAddLink} className="space-y-4">
+          <Input
+            label="اسم الرابط"
+            value={linkTitle}
+            onChange={(e) => setLinkTitle(e.target.value)}
+            required
+            placeholder="مثال: موقع المراجعات"
+          />
+          <Input
+            label="عنوان الرابط (URL)"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            required
+            placeholder="https://example.com"
+            dir="ltr"
+          />
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setShowAddLink(false)} className="flex-1">إلغاء</Button>
+            <Button type="submit" className="flex-1" icon={<Plus className="w-4 h-4" />}>إضافة</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Resource Modal */}
+      <Modal
+        open={showEdit}
+        onClose={() => setShowEdit(false)}
+        title="تعديل المورد"
+        description="عدّل بيانات المادة التعليمية"
+        className={MOBILE_DIALOG_CLASS}
+      >
+        <form onSubmit={handleEdit} className="space-y-4">
+          <Input
+            label="اسم المادة"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            required
+          />
+          <TextArea
+            label="الوصف (اختياري)"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+          />
+          <Select
+            label="النوع"
+            value={editType}
+            onChange={(e) => setEditType(e.target.value as ResourceType)}
+            options={typeOptions}
+          />
+          <Select
+            label="الظهور"
+            value={editIsPrivate ? 'private' : 'public'}
+            onChange={(e) => setEditIsPrivate(e.target.value === 'private')}
+            options={visibilityOptions}
+          />
+          {canManage && r.isPrivate && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+              عند تحويل المورد إلى عام سيتم حذف رمز الوصول ولم يعد الوصول مقيداً لأي طالب.
+            </p>
+          )}
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setShowEdit(false)} className="flex-1">إلغاء</Button>
+            <Button type="submit" className="flex-1" icon={<Pencil className="w-4 h-4" />}>حفظ</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Leave Morven confirmation */}
+      <Modal
+        open={confirmDepart !== null}
+        onClose={() => setConfirmDepart(null)}
+        title="مغادرة مورفن"
+        description="أنت على وشك فتح رابط خارجي"
+        className={MOBILE_DIALOG_CLASS}
+      >
+        {confirmDepart && (
+          <>
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 p-4 mb-4">
+              <p className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
+                سيتم فتح الرابط التالي في نافذة جديدة خارج موقع مورفن:
+              </p>
+              <p className="mt-2 text-sm font-mono font-medium text-amber-900 dark:text-amber-100 break-all" dir="ltr">
+                {confirmDepart.url}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={() => setConfirmDepart(null)} className="flex-1">إلغاء</Button>
+              <Button
+                className="flex-1"
+                icon={<ExternalLinkIcon className="w-4 h-4" />}
+                onClick={() => {
+                  const url = confirmDepart.url;
+                  setConfirmDepart(null);
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                فتح الرابط
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="حذف المورد"
+        size="sm"
+        className={MOBILE_DIALOG_CLASS}
+      >
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          هل أنت متأكد من حذف هذا المورد؟ سيتم حذف جميع محتوياته نهائياً ولا يمكن التراجع عن هذا الإجراء.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="ghost" onClick={() => setConfirmDelete(false)} className="flex-1">إلغاء</Button>
+          <Button variant="danger" onClick={handleDelete} className="flex-1">حذف</Button>
+        </div>
+      </Modal>
+    </>
+  );
+
+  // ---- Phone-only presentation (below 640px) ------------------------------
+  // A completely separate, mobile-first layout that mirrors the mobile Group
+  // Detail page. The desktop/tablet JSX below is intentionally left untouched
+  // so wider viewports are unaffected.
+  if (isMobilePhone) {
+    return (
+      <>
+        <ResourceDetailMobile
+          resource={r}
+          files={files}
+          notes={notes}
+          links={links}
+          canManage={canManage}
+          maxFiles={MAX_FILES}
+          copiedAccessCode={copiedAccessCode}
+          actionError={actionError}
+          onCopyAccessCode={handleCopyAccessCode}
+          onEdit={() => setShowEdit(true)}
+          onDelete={() => setConfirmDelete(true)}
+          onFilesSelected={handleFilesSelected}
+          onDownloadFile={handleDownload}
+          onRemoveFile={handleRemoveFile}
+          onAddNote={() => setShowAddNote(true)}
+          onViewNote={setViewNoteId}
+          onRemoveNote={handleRemoveNote}
+          onAddLink={() => setShowAddLink(true)}
+          onOpenLink={openDepart}
+          onRemoveLink={handleRemoveLink}
+        />
+        {renderDialogs()}
+      </>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8" dir="rtl">
@@ -668,176 +891,7 @@ export default function ResourceDetailPage() {
         </>
       )}
 
-      {/* Add Note Modal */}
-      <Modal
-        open={showAddNote}
-        onClose={() => setShowAddNote(false)}
-        title="إضافة ملاحظة"
-        description="أضف ملاحظة جديدة لهذا المورد"
-      >
-        <form onSubmit={handleAddNote} className="space-y-4">
-          <Input
-            label="عنوان الملاحظة"
-            value={noteTitle}
-            onChange={(e) => setNoteTitle(e.target.value)}
-            required
-            placeholder="مثال: أهم نقاط المراجعة"
-          />
-          <TextArea
-            label="محتوى الملاحظة"
-            value={noteContent}
-            onChange={(e) => setNoteContent(e.target.value)}
-            placeholder="اكتب محتوى الملاحظة هنا..."
-            className="min-h-[140px]"
-          />
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowAddNote(false)} className="flex-1">إلغاء</Button>
-            <Button type="submit" className="flex-1" icon={<Plus className="w-4 h-4" />}>إضافة</Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* View Note Modal */}
-      <Modal
-        open={viewNoteId !== null}
-        onClose={() => setViewNoteId(null)}
-        title={viewNote?.title || 'ملاحظة'}
-      >
-        <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line min-h-[80px]">
-          {viewNote?.content?.trim() ? (
-            viewNote.content
-          ) : (
-            <p className="text-gray-400 dark:text-gray-500">لا يوجد محتوى لهذه الملاحظة.</p>
-          )}
-        </div>
-        <div className="flex gap-3 pt-4 mt-4 border-t border-light-border dark:border-dark-border">
-          <Button type="button" variant="ghost" onClick={() => setViewNoteId(null)} className="flex-1">إغلاق</Button>
-        </div>
-      </Modal>
-
-      {/* Add Link Modal */}
-      <Modal
-        open={showAddLink}
-        onClose={() => setShowAddLink(false)}
-        title="إضافة رابط"
-        description="أضف رابطاً مفيداً لهذا المورد"
-      >
-        <form onSubmit={handleAddLink} className="space-y-4">
-          <Input
-            label="اسم الرابط"
-            value={linkTitle}
-            onChange={(e) => setLinkTitle(e.target.value)}
-            required
-            placeholder="مثال: موقع المراجعات"
-          />
-          <Input
-            label="عنوان الرابط (URL)"
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            required
-            placeholder="https://example.com"
-            dir="ltr"
-          />
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowAddLink(false)} className="flex-1">إلغاء</Button>
-            <Button type="submit" className="flex-1" icon={<Plus className="w-4 h-4" />}>إضافة</Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Edit Resource Modal */}
-      <Modal
-        open={showEdit}
-        onClose={() => setShowEdit(false)}
-        title="تعديل المورد"
-        description="عدّل بيانات المادة التعليمية"
-      >
-        <form onSubmit={handleEdit} className="space-y-4">
-          <Input
-            label="اسم المادة"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            required
-          />
-          <TextArea
-            label="الوصف (اختياري)"
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.target.value)}
-          />
-          <Select
-            label="النوع"
-            value={editType}
-            onChange={(e) => setEditType(e.target.value as ResourceType)}
-            options={typeOptions}
-          />
-          <Select
-            label="الظهور"
-            value={editIsPrivate ? 'private' : 'public'}
-            onChange={(e) => setEditIsPrivate(e.target.value === 'private')}
-            options={visibilityOptions}
-          />
-          {canManage && r.isPrivate && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
-              عند تحويل المورد إلى عام سيتم حذف رمز الوصول ولم يعد الوصول مقيداً لأي طالب.
-            </p>
-          )}
-          <div className="flex gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowEdit(false)} className="flex-1">إلغاء</Button>
-            <Button type="submit" className="flex-1" icon={<Pencil className="w-4 h-4" />}>حفظ</Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Leave Morven confirmation */}
-      <Modal
-        open={confirmDepart !== null}
-        onClose={() => setConfirmDepart(null)}
-        title="مغادرة مورفن"
-        description="أنت على وشك فتح رابط خارجي"
-      >
-        {confirmDepart && (
-          <>
-            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 p-4 mb-4">
-              <p className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
-                سيتم فتح الرابط التالي في نافذة جديدة خارج موقع مورفن:
-              </p>
-              <p className="mt-2 text-sm font-mono font-medium text-amber-900 dark:text-amber-100 break-all" dir="ltr">
-                {confirmDepart.url}
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setConfirmDepart(null)} className="flex-1">إلغاء</Button>
-              <Button
-                className="flex-1"
-                icon={<ExternalLinkIcon className="w-4 h-4" />}
-                onClick={() => {
-                  const url = confirmDepart.url;
-                  setConfirmDepart(null);
-                  window.open(url, '_blank', 'noopener,noreferrer');
-                }}
-              >
-                فتح الرابط
-              </Button>
-            </div>
-          </>
-        )}
-      </Modal>
-
-      {/* Delete confirmation */}
-      <Modal
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title="حذف المورد"
-        size="sm"
-      >
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          هل أنت متأكد من حذف هذا المورد؟ سيتم حذف جميع محتوياته نهائياً ولا يمكن التراجع عن هذا الإجراء.
-        </p>
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={() => setConfirmDelete(false)} className="flex-1">إلغاء</Button>
-          <Button variant="danger" onClick={handleDelete} className="flex-1">حذف</Button>
-        </div>
-      </Modal>
+      {renderDialogs()}
     </div>
   );
 }

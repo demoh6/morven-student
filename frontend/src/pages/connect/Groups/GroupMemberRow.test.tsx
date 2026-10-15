@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { GroupMemberRow } from './GroupMemberRow';
+import { GroupMemberRow, formatFocusDuration } from './GroupMemberRow';
 
 const baseMember = {
   id: 'u1',
@@ -18,7 +18,8 @@ function renderRow(props: Partial<Parameters<typeof GroupMemberRow>[0]> = {}) {
       <GroupMemberRow
         member={baseMember}
         rank={1}
-        totalSeconds={0}
+        weeklySeconds={0}
+        dailySeconds={0}
         focusing={false}
         isSelf={false}
         canRemove={false}
@@ -28,54 +29,80 @@ function renderRow(props: Partial<Parameters<typeof GroupMemberRow>[0]> = {}) {
   );
 }
 
+describe('formatFocusDuration', () => {
+  it('hides the hours portion when hours are zero', () => {
+    expect(formatFocusDuration(0)).toBe('0د');
+    expect(formatFocusDuration(600)).toBe('10د'); // 0h10m
+    expect(formatFocusDuration(2700)).toBe('45د'); // 0h45m
+  });
+
+  it('hides the minutes portion when minutes are zero and hours > 0', () => {
+    expect(formatFocusDuration(3600)).toBe('1س'); // 1h0m
+    expect(formatFocusDuration(36000)).toBe('10س'); // 10h0m
+  });
+
+  it('shows both portions when hours and minutes are non-zero', () => {
+    expect(formatFocusDuration(4200)).toBe('1س 10د'); // 1h10m
+    expect(formatFocusDuration(36600)).toBe('10س 10د'); // 10h10m
+    expect(formatFocusDuration(10200)).toBe('2س 50د'); // 2h50m
+  });
+
+  it('drops sub-minute seconds and guards invalid values', () => {
+    expect(formatFocusDuration(2705)).toBe('45د');
+    expect(formatFocusDuration(-100)).toBe('0د');
+    expect(formatFocusDuration(Number.NaN)).toBe('0د');
+  });
+});
+
 describe('GroupMemberRow', () => {
-  it('always shows the Pomodoro hours badge, including 0 ساعة', () => {
-    renderRow({ totalSeconds: 0 });
-    expect(screen.getByText('0 ساعة')).toBeInTheDocument();
+  it('always shows both focus-time lines, including zeros', () => {
+    renderRow({ weeklySeconds: 0, dailySeconds: 0 });
+    expect(screen.getByTitle('ساعات التركيز هذا الأسبوع')).toHaveTextContent('هذا الأسبوع: 0د');
+    expect(screen.getByTitle('ساعات التركيز هذا اليوم')).toHaveTextContent('هذا اليوم: 0د');
   });
 
-  it('shows non-zero hours always with the fixed word ساعة', () => {
-    renderRow({ totalSeconds: 5400 }); // 1.5h
-    expect(screen.getByText('1.5 ساعة')).toBeInTheDocument();
-    renderRow({ totalSeconds: 14400 }); // 4h
-    expect(screen.getByText('4 ساعة')).toBeInTheDocument();
+  it('shows distinct weekly and daily totals', () => {
+    renderRow({ weeklySeconds: 10200, dailySeconds: 4200 }); // 2h50m / 1h10m
+    expect(screen.getByTitle('ساعات التركيز هذا الأسبوع')).toHaveTextContent('هذا الأسبوع: 2س 50د');
+    expect(screen.getByTitle('ساعات التركيز هذا اليوم')).toHaveTextContent('هذا اليوم: 1س 10د');
   });
 
-  it('shows the Focusing ICON only when the member is focusing', () => {
+  it('shows the focusing status under the name only when the member is focusing', () => {
     const { unmount } = renderRow({ focusing: false });
-    expect(screen.queryByLabelText('يركّز الآن')).not.toBeInTheDocument();
+    expect(screen.queryByText('جارٍ التركيز...')).not.toBeInTheDocument();
     unmount();
 
     renderRow({ focusing: true });
-    expect(screen.getByLabelText('يركّز الآن')).toBeInTheDocument();
-    // The word "يركّز" must NOT be rendered as text — only the icon remains.
-    expect(screen.queryByText('يركّز')).not.toBeInTheDocument();
+    expect(screen.getByText('جارٍ التركيز...')).toBeInTheDocument();
   });
 
-  it('places the Focusing ICON to the RIGHT of (before) the hours badge in RTL', () => {
-    renderRow({ focusing: true, totalSeconds: 10800 }); // 3h
-    const hours = screen.getByText('3 ساعة');
-    const focusing = screen.getByLabelText('يركّز الآن');
-    // In an RTL flex row the first DOM child renders rightmost, so the focusing
-    // icon must precede the hours badge in document order.
-    expect(focusing.compareDocumentPosition(hours) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it('renders the focusing status under the name, before the focus-time badges', () => {
+    renderRow({ focusing: true, weeklySeconds: 10800 }); // 3h
+    const status = screen.getByText('جارٍ التركيز...');
+    const name = screen.getByText('محمد');
+    const weekly = screen.getByTitle('ساعات التركيز هذا الأسبوع');
+    // Status appears after the name but before the focus-time badges.
+    expect(name.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status.compareDocumentPosition(weekly) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('stacks the weekly line above the daily line', () => {
+    renderRow({ weeklySeconds: 7200, dailySeconds: 3600 });
+    const weekly = screen.getByTitle('ساعات التركيز هذا الأسبوع');
+    const daily = screen.getByTitle('ساعات التركيز هذا اليوم');
+    expect(weekly.compareDocumentPosition(daily) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('places the Remove action on the right side next to the name (before the badges)', () => {
-    renderRow({ focusing: true, totalSeconds: 10800, canRemove: true, onRemove: () => {} });
+    renderRow({ focusing: true, weeklySeconds: 10800, canRemove: true, onRemove: () => {} });
     const removeBtn = screen.getByRole('button', { name: 'إزالة العضو' });
-    const hours = screen.getByText('3 ساعة');
-    // The remove button belongs to the name cluster (right side in RTL),
-    // so it must come BEFORE the hours badge in document order — i.e. NOT at the
-    // far-left edge of the row.
-    expect(removeBtn.compareDocumentPosition(hours) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const weekly = screen.getByTitle('ساعات التركيز هذا الأسبوع');
+    expect(removeBtn.compareDocumentPosition(weekly) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('renders NO standalone online/offline indicator for a non-focusing member', () => {
     renderRow({ focusing: false });
-    // The hours badge is present, but there must be no separate online badge.
-    expect(screen.getByText('0 ساعة')).toBeInTheDocument();
-    // No "متصل" (online) badge anywhere.
+    expect(screen.getByTitle('ساعات التركيز هذا الأسبوع')).toHaveTextContent('هذا الأسبوع: 0د');
     expect(screen.queryByText('متصل')).not.toBeInTheDocument();
     expect(screen.queryByText('غير متصل')).not.toBeInTheDocument();
   });
@@ -109,7 +136,6 @@ describe('GroupMemberRow', () => {
     const badge = screen.getByLabelText('المركز الأول');
     expect(badge).toBeInTheDocument();
     expect(screen.queryByLabelText('المركز الثاني')).not.toBeInTheDocument();
-    // The icon must NOT be framed inside a circle or any container background.
     expect(badge.className).not.toMatch(/rounded-full/);
     expect(badge.className).not.toMatch(/\bbg-/);
   });
@@ -145,10 +171,6 @@ describe('GroupMemberRow', () => {
     const avatar = screen.getByAltText('محمد');
     const rankBadge = screen.getByLabelText('المركز الثالث');
     const name = screen.getByText('محمد');
-    // In an RTL flex row the first DOM child renders rightmost. So the rank
-    // badge must precede the avatar, and the avatar must precede the name, in
-    // document order (rank is right of the picture, picture is right of the
-    // name).
     expect(rankBadge.compareDocumentPosition(avatar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(avatar.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

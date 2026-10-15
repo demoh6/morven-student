@@ -95,6 +95,14 @@ function sumSessions(rows) {
   return rows.reduce((acc, r) => acc + r.durationSeconds, 0);
 }
 
+function weeklyOf(rows, uid) {
+  return rows.find((e) => e.userId === uid).weeklySeconds;
+}
+
+function dailyOf(rows, uid) {
+  return rows.find((e) => e.userId === uid).dailySeconds;
+}
+
 describe("Weekly Group Ranking", () => {
   let server;
   let baseUrl;
@@ -203,6 +211,7 @@ describe("Weekly Group Ranking", () => {
     for (const entry of body.ranking) {
       assert.equal(typeof entry.rank, "number");
       assert.equal(typeof entry.weeklySeconds, "number");
+      assert.equal(typeof entry.dailySeconds, "number");
       assert.ok(entry.userId);
       assert.ok(entry.username);
     }
@@ -216,6 +225,11 @@ describe("Weekly Group Ranking", () => {
     assert.equal(body.ranking[0].rank, 1);
     assert.equal(body.ranking[1].rank, 2);
     assert.equal(body.ranking[2].rank, 3);
+    // All seeded sessions completed "now", so they are also today's activity.
+    assert.equal(body.ranking[0].dailySeconds, 72000);
+    assert.equal(body.ranking[1].dailySeconds, 36000);
+    assert.equal(body.ranking[2].dailySeconds, 18000);
+    assert.equal(body.ranking[3].dailySeconds, 0);
   });
 
   // -------------------------------------------------------------------------
@@ -328,6 +342,10 @@ describe("Weekly Group Ranking", () => {
     const sum = (rows, uid) => rows.find((e) => e.userId === uid).weeklySeconds;
     assert.equal(sum(body.ranking, owner.user.id), 0, "old owner hours must not count");
     assert.equal(sum(body.ranking, peer.user.id), 7200, "only the current session counts for peer");
+
+    // Daily totals derive from the same log: the far-past session is excluded.
+    assert.equal(dailyOf(body.ranking, owner.user.id), 0, "old owner hours must not count today");
+    assert.equal(dailyOf(body.ranking, peer.user.id), 7200, "only the current session counts today");
 
     // 7. Historical data remains in the database (nothing was deleted).
     const stored = await prisma.pomodoroSession.findMany({ where: { groupId: group.id } });
@@ -449,6 +467,7 @@ describe("Weekly Group Ranking", () => {
     assert.ok(body.ranking.length >= 2, "all members must be listed");
     for (const entry of body.ranking) {
       assert.equal(entry.weeklySeconds, 0, "no activity means zero weekly duration");
+      assert.equal(entry.dailySeconds, 0, "no activity means zero daily duration");
     }
   });
 });

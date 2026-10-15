@@ -63,10 +63,14 @@ const twoMemberGroup = {
 const WEEK_START = '2026-09-04T21:00:00.000Z';
 const WEEK_END = '2026-09-11T20:59:59.000Z';
 
-function weeklyResponse(ranking: Array<{ userId: string; weeklySeconds: number }>) {
+function weeklyResponse(
+  ranking: Array<{ userId: string; weeklySeconds: number; dailySeconds?: number }>,
+) {
   return {
     weekStart: WEEK_START,
     weekEnd: WEEK_END,
+    dayStart: '2026-09-08T21:00:00.000Z',
+    nextDayStart: '2026-09-09T21:00:00.000Z',
     ranking: ranking.map((r, i) => ({
       rank: i + 1,
       userId: r.userId,
@@ -74,6 +78,7 @@ function weeklyResponse(ranking: Array<{ userId: string; weeklySeconds: number }
       displayName: r.userId === 'me' ? 'Me' : 'Peer',
       avatarUrl: null,
       weeklySeconds: r.weeklySeconds,
+      dailySeconds: r.dailySeconds ?? 0,
     })),
   };
 }
@@ -167,12 +172,12 @@ describe('GroupDetailPage — offline behavior', () => {
 });
 
 describe('GroupDetailPage — weekly group study hours', () => {
-  it('displays the current week hours (not all-time) ranked by weekly totals', async () => {
+  it('displays the current week and today hours ranked by weekly totals', async () => {
     api.getGroupDetails.mockResolvedValue({ group: twoMemberGroup });
     api.getWeeklyGroupRanking.mockResolvedValue(
       weeklyResponse([
-        { userId: 'peer', weeklySeconds: 7200 },
-        { userId: 'me', weeklySeconds: 3600 },
+        { userId: 'peer', weeklySeconds: 7200, dailySeconds: 3600 },
+        { userId: 'me', weeklySeconds: 3600, dailySeconds: 1800 },
       ]),
     );
 
@@ -181,9 +186,14 @@ describe('GroupDetailPage — weekly group study hours', () => {
     expect(await screen.findByText('Alpha Group')).toBeTruthy();
     expect(api.getWeeklyGroupRanking).toHaveBeenCalledWith('g1');
 
-    // Hours badges reflect WEEKLY seconds only.
-    expect(await screen.findByText('2 ساعة')).toBeInTheDocument();
-    expect(screen.getByText('1 ساعة')).toBeInTheDocument();
+    // Weekly badges reflect WEEKLY seconds; daily badges reflect DAILY seconds.
+    // (Members are ordered by weekly total: peer first, then me.)
+    const weeklyBadges = await screen.findAllByTitle('ساعات التركيز هذا الأسبوع');
+    expect(weeklyBadges[0]).toHaveTextContent('هذا الأسبوع: 2س');
+    expect(weeklyBadges[1]).toHaveTextContent('هذا الأسبوع: 1س');
+    const dailyBadges = screen.getAllByTitle('ساعات التركيز هذا اليوم');
+    expect(dailyBadges[0]).toHaveTextContent('هذا اليوم: 1س');
+    expect(dailyBadges[1]).toHaveTextContent('هذا اليوم: 30د');
 
     // Highest weekly total is ranked first (appears earlier in the DOM).
     const peer = screen.getByText('Peer');
@@ -195,16 +205,17 @@ describe('GroupDetailPage — weekly group study hours', () => {
     api.getGroupDetails.mockResolvedValue({ group: twoMemberGroup });
     api.getWeeklyGroupRanking.mockResolvedValue(
       weeklyResponse([
-        { userId: 'me', weeklySeconds: 0 },
-        { userId: 'peer', weeklySeconds: 0 },
+        { userId: 'me', weeklySeconds: 0, dailySeconds: 0 },
+        { userId: 'peer', weeklySeconds: 0, dailySeconds: 0 },
       ]),
     );
 
     renderPage();
 
     expect(await screen.findByText('Alpha Group')).toBeTruthy();
-    const zeroBadges = await screen.findAllByText('0 ساعة');
-    expect(zeroBadges).toHaveLength(2);
+    const zeroWeekly = await screen.findAllByTitle('ساعات التركيز هذا الأسبوع');
+    expect(zeroWeekly).toHaveLength(2);
+    zeroWeekly.forEach((badge) => expect(badge).toHaveTextContent('هذا الأسبوع: 0د'));
   });
 
   it('refreshes the weekly ranking when a leaderboard socket event arrives', async () => {
@@ -228,7 +239,7 @@ describe('GroupDetailPage — weekly group study hours', () => {
     // A session is submitted: the socket broadcast triggers a weekly refetch.
     api.getWeeklyGroupRanking.mockResolvedValueOnce(
       weeklyResponse([
-        { userId: 'me', weeklySeconds: 7200 },
+        { userId: 'me', weeklySeconds: 7200, dailySeconds: 7200 },
         { userId: 'peer', weeklySeconds: 0 },
       ]),
     );
@@ -237,6 +248,61 @@ describe('GroupDetailPage — weekly group study hours', () => {
     });
 
     await waitFor(() => expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText('2 ساعة')).toBeInTheDocument();
+    const refreshed = screen.getAllByTitle('ساعات التركيز هذا الأسبوع');
+    expect(refreshed[0]).toHaveTextContent('هذا الأسبوع: 2س');
+  });
+});
+
+describe('GroupDetailPage — automatic daily rollover', () => {
+  it('refreshes the today line at local midnight while idle (no socket event, no navigation)', async () => {
+    api.getGroupDetails.mockResolvedValue({ group });
+    const now = Date.now();
+    api.getWeeklyGroupRanking
+      .mockResolvedValueOnce({
+        ...weeklyResponse([{ userId: 'me', weeklySeconds: 3600, dailySeconds: 3600 }]),
+        dayStart: new Date(now - 3600_000).toISOString(),
+        // Boundary a moment away: the page must roll over on its own.
+        nextDayStart: new Date(now + 500).toISOString(),
+      })
+      .mockResolvedValueOnce({
+        ...weeklyResponse([{ userId: 'me', weeklySeconds: 3600, dailySeconds: 0 }]),
+        dayStart: new Date(now + 86_400_000).toISOString(),
+        nextDayStart: new Date(now + 86_400_500).toISOString(),
+      });
+
+    renderPage();
+
+    expect(await screen.findByText('Alpha Group')).toBeTruthy();
+    expect(await screen.findByTitle('ساعات التركيز هذا اليوم')).toHaveTextContent('هذا اليوم: 1س');
+
+    // Only the scheduled timer triggers the second fetch.
+    await waitFor(() => expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(2), {
+      timeout: 6000,
+    });
+    await waitFor(() =>
+      expect(screen.getByTitle('ساعات التركيز هذا اليوم')).toHaveTextContent('هذا اليوم: 0د'),
+    );
+    // Weekly total is untouched by the daily rollover.
+    expect(screen.getByTitle('ساعات التركيز هذا الأسبوع')).toHaveTextContent('هذا الأسبوع: 1س');
+  });
+
+  it('clears the rollover timer on unmount', async () => {
+    api.getGroupDetails.mockResolvedValue({ group });
+    const now = Date.now();
+    api.getWeeklyGroupRanking.mockResolvedValue({
+      ...weeklyResponse([{ userId: 'me', weeklySeconds: 3600, dailySeconds: 3600 }]),
+      dayStart: new Date(now - 3600_000).toISOString(),
+      nextDayStart: new Date(now + 500).toISOString(),
+    });
+
+    const view = renderPage();
+
+    expect(await screen.findByText('Alpha Group')).toBeTruthy();
+    await waitFor(() => expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    // Wait past the scheduled fire instant; a cleared timer must not refetch.
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    expect(api.getWeeklyGroupRanking).toHaveBeenCalledTimes(1);
   });
 });

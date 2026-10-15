@@ -61,9 +61,10 @@ router.get("/api/groups/:groupId/leaderboard", authenticate, async (req: Request
 });
 
 // GET /api/groups/:groupId/leaderboard/weekly — current weekly competition
-// ranking (Saturday 00:00 → Friday 23:59:59, configured weekly timezone).
-// The backend derives the active week from the current date/time, so the
-// ranking automatically resets each Saturday without any reset job.
+// ranking (Saturday 00:00 → Friday 23:59:59, configured weekly timezone) with
+// each member's current-day total (resets at local 00:00). The backend derives
+// both periods from the current date/time, so the ranking automatically resets
+// each Saturday and the daily total each midnight without any reset job.
 router.get("/api/groups/:groupId/leaderboard/weekly", authenticate, async (req: Request<{ groupId: string }>, res: Response) => {
   try {
     if (!req.user) { res.status(401).json({ error: "غير مصرح" }); return; }
@@ -74,6 +75,8 @@ router.get("/api/groups/:groupId/leaderboard/weekly", authenticate, async (req: 
     res.json({
       weekStart: result.weekStart.toISOString(),
       weekEnd: result.weekEnd.toISOString(),
+      dayStart: result.dayStart.toISOString(),
+      nextDayStart: result.nextDayStart.toISOString(),
       ranking: result.ranking,
     });
   } catch (err) {
