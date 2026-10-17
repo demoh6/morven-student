@@ -21,8 +21,7 @@ import {
   UserCircle,
   Lightbulb,
   Shield as ShieldIcon,
-  BookmarkPlus,
-  FolderKanban,
+  Shield,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -268,34 +267,12 @@ export function Header({ title }: HeaderProps) {
                           <button
                             onClick={() => {
                               setMenuOpen(false);
-                              navigate('/admin/suggestions');
+                              navigate('/admin/tools');
                             }}
                             className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors"
                           >
-                            <Lightbulb className="w-4 h-4 text-primary-500" />
-                            الاقتراحات
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setMenuOpen(false);
-                              navigate('/admin/adhkar');
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors"
-                          >
-                            <BookmarkPlus className="w-4 h-4 text-primary-500" />
-                            مراجعة الأذكار
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setMenuOpen(false);
-                              navigate('/admin/portfolio');
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-dark-hover transition-colors"
-                          >
-                            <FolderKanban className="w-4 h-4 text-primary-500" />
-                            قوالب الملفات الجامعية
+                            <Shield className="w-4 h-4 text-primary-500" />
+                            أدوات الإدارة
                           </button>
                           </>
                         )}

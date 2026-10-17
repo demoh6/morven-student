@@ -1,22 +1,34 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Building2, CalendarDays, FolderOpen, GraduationCap, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Modal } from '@/components/UI';
 import { useAppStore } from '@/store/useAppStore';
+import {
+  createAdminCohort,
+  createAdminCourse,
+  createAdminUniversity,
+  type CohortPayload,
+  type CoursePayload,
+  type UniversityPayload,
+} from '../api/portfolioApi';
 import {
   getBatchById,
   getBatchesForUniversity,
   getSubjectById,
   getSubjectsFor,
   getUniversityById,
-  mockUniversities,
-} from '../data/mock';
+  usePortfolioCatalogStore,
+} from '../data/catalog';
 import { portfolioLabels } from '../labels';
 import SelectionGrid from '../steps/SelectionGrid';
+import CohortFormModal from './catalog/CohortFormModal';
+import CourseFormModal from './catalog/CourseFormModal';
+import UniversityFormModal from './catalog/UniversityFormModal';
 import { usePortfolioAdminStore, type AdminPortfolioTemplate, type TemplateStatus } from './usePortfolioAdminStore';
 import TemplateEditorPanel from './TemplateEditorPanel';
 
 type AdminView = 'dashboard' | 'wizard' | 'editor';
 type WizardStep = 'university' | 'batch' | 'subject';
+type AddKind = 'university' | 'cohort' | 'course' | null;
 
 function TemplateRow({
   template,
@@ -34,10 +46,14 @@ function TemplateRow({
   const batch = getBatchById(template.batchId);
   const subject = getSubjectById(template.subjectId);
 
-  const toggleStatus = () => {
+  const toggleStatus = async () => {
     const next: TemplateStatus = template.status === 'published' ? 'draft' : 'published';
-    setStatus(template.id, next);
-    addNotification(next === 'published' ? 'تم نشر القالب' : 'تم تحويل القالب إلى مسودة', 'success');
+    try {
+      await setStatus(template.id, next);
+      addNotification(next === 'published' ? 'تم نشر القالب' : 'تم تحويل القالب إلى مسودة', 'success');
+    } catch (err) {
+      addNotification((err as Error).message || 'تعذر تحديث حالة القالب', 'error');
+    }
   };
 
   return (
@@ -88,8 +104,9 @@ function TemplateRow({
 }
 
 export default function PortfolioAdminPage() {
-  const { templates, add, update, remove } = usePortfolioAdminStore();
+  const { templates, loading, error, load, add, update, remove } = usePortfolioAdminStore();
   const addNotification = useAppStore((s) => s.addNotification);
+  const universities = usePortfolioCatalogStore((s) => s.universities);
 
   const [view, setView] = useState<AdminView>('dashboard');
   const [wizardStep, setWizardStep] = useState<WizardStep>('university');
@@ -98,6 +115,12 @@ export default function PortfolioAdminPage() {
   const [wizardSubjectId, setWizardSubjectId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminPortfolioTemplate | null>(null);
+  const [addKind, setAddKind] = useState<AddKind>(null);
+
+  useEffect(() => {
+    load();
+    usePortfolioCatalogStore.getState().load();
+  }, [load]);
 
   const editingTemplate = useMemo(
     () => (editingId ? templates.find((t) => t.id === editingId) ?? null : null),
@@ -117,28 +140,66 @@ export default function PortfolioAdminPage() {
     setView('editor');
   };
 
-  const handleSave = (template: AdminPortfolioTemplate) => {
-    if (editingId) {
-      update(editingId, template);
-      addNotification('تم تحديث القالب بنجاح', 'success');
-    } else {
-      add(template);
-      addNotification('تم إنشاء القالب بنجاح', 'success');
+  const handleSave = async (template: AdminPortfolioTemplate) => {
+    try {
+      if (editingId) {
+        await update(editingId, template);
+        addNotification('تم تحديث القالب بنجاح', 'success');
+      } else {
+        await add(template);
+        addNotification('تم إنشاء القالب بنجاح', 'success');
+      }
+      setView('dashboard');
+      setEditingId(null);
+    } catch (err) {
+      addNotification((err as Error).message || 'تعذر حفظ القالب', 'error');
     }
-    setView('dashboard');
-    setEditingId(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    remove(deleteTarget.id);
-    addNotification('تم حذف القالب', 'success');
-    setDeleteTarget(null);
+    try {
+      await remove(deleteTarget.id);
+      addNotification('تم حذف القالب', 'success');
+      setDeleteTarget(null);
+    } catch (err) {
+      addNotification((err as Error).message || 'تعذر حذف القالب', 'error');
+    }
   };
 
   const goBack = () => {
     setEditingId(null);
     setView('dashboard');
+  };
+
+  const handleQuickAdd = (kind: Exclude<AddKind, null>) => {
+    if (kind === 'cohort' && !wizardUniId) return;
+    if (kind === 'course' && (!wizardUniId || !wizardBatchId)) return;
+    setAddKind(kind);
+  };
+
+  const submitQuickAddUniversity = async (payload: UniversityPayload) => {
+    const created = await createAdminUniversity(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setWizardUniId(created.id);
+    setWizardStep('batch');
+    addNotification('تم إضافة الجامعة بنجاح', 'success');
+  };
+
+  const submitQuickAddCohort = async (payload: CohortPayload) => {
+    const created = await createAdminCohort(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setWizardBatchId(created.id);
+    setWizardSubjectId(null);
+    setWizardStep('subject');
+    addNotification('تم إضافة الدفعة بنجاح', 'success');
+  };
+
+  const submitQuickAddCourse = async (payload: CoursePayload) => {
+    const created = await createAdminCourse(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setWizardSubjectId(created.id);
+    addNotification('تم إضافة المادة بنجاح', 'success');
   };
 
   const wizardContinueDisabled = () => {
@@ -150,32 +211,35 @@ export default function PortfolioAdminPage() {
   let content: React.ReactNode;
 
   if (view === 'dashboard') {
-    content =
-      templates.length === 0 ? (
-        <EmptyState
-          icon={<FolderOpen className="w-9 h-9" />}
-          title="لا توجد قوالب بعد"
-          description="أنشئ أول قالب ملف جامعي لجامعتك."
-          action={{ label: 'إنشاء قالب', onClick: startCreate }}
-        />
-      ) : (
-        <div className="space-y-3">
-          {templates.map((t) => (
-            <TemplateRow
-              key={t.id}
-              template={t}
-              onEdit={() => startEdit(t.id)}
-              onRemove={() => setDeleteTarget(t)}
-            />
-          ))}
-        </div>
-      );
+    content = loading && templates.length === 0 ? (
+      <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">جارٍ تحميل القوالب...</div>
+    ) : error && templates.length === 0 ? (
+      <div className="p-8 text-center text-sm text-red-500 dark:text-red-400">{error}</div>
+    ) : templates.length === 0 ? (
+      <EmptyState
+        icon={<FolderOpen className="w-9 h-9" />}
+        title="لا توجد قوالب بعد"
+        description="أنشئ أول قالب ملف جامعي لجامعتك."
+        action={{ label: 'إنشاء قالب', onClick: startCreate }}
+      />
+    ) : (
+      <div className="space-y-3">
+        {templates.map((t) => (
+          <TemplateRow
+            key={t.id}
+            template={t}
+            onEdit={() => startEdit(t.id)}
+            onRemove={() => setDeleteTarget(t)}
+          />
+        ))}
+      </div>
+    );
   }
 
   if (view === 'wizard') {
     const options =
       wizardStep === 'university'
-        ? mockUniversities.map((u) => ({
+        ? universities.map((u) => ({
             id: u.id,
             title: u.name,
             subtitle: u.city,
@@ -219,6 +283,18 @@ export default function PortfolioAdminPage() {
         description={description}
         searchPlaceholder="ابحث..."
         emptyLabel="لا توجد خيارات مطابقة."
+        addNewLabel={
+          wizardStep === 'university'
+            ? '+ إضافة جامعة جديدة'
+            : wizardStep === 'batch'
+            ? '+ إضافة دفعة جديدة'
+            : '+ إضافة مادة جديدة'
+        }
+        onAddNew={() =>
+          handleQuickAdd(
+            wizardStep === 'university' ? 'university' : wizardStep === 'batch' ? 'cohort' : 'course',
+          )
+        }
         selectedId={
           wizardStep === 'university'
             ? wizardUniId
@@ -227,9 +303,16 @@ export default function PortfolioAdminPage() {
             : wizardSubjectId
         }
         onSelect={(id) => {
-          if (wizardStep === 'university') setWizardUniId(id);
-          else if (wizardStep === 'batch') setWizardBatchId(id);
-          else setWizardSubjectId(id);
+          if (wizardStep === 'university') {
+            setWizardUniId(id);
+            setWizardBatchId(null);
+            setWizardSubjectId(null);
+          } else if (wizardStep === 'batch') {
+            setWizardBatchId(id);
+            setWizardSubjectId(null);
+          } else {
+            setWizardSubjectId(id);
+          }
         }}
         onContinue={() => {
           if (wizardStep === 'university') setWizardStep('batch');
@@ -282,6 +365,29 @@ export default function PortfolioAdminPage() {
       </div>
 
       {content}
+
+      <UniversityFormModal
+        open={addKind === 'university'}
+        existing={null}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddUniversity}
+      />
+      <CohortFormModal
+        open={addKind === 'cohort'}
+        existing={null}
+        universityId={wizardUniId ?? ''}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddCohort}
+      />
+      <CourseFormModal
+        open={addKind === 'course'}
+        existing={null}
+        universityId={wizardUniId ?? ''}
+        cohorts={wizardUniId ? getBatchesForUniversity(wizardUniId) : []}
+        defaultBatchId={wizardBatchId}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddCourse}
+      />
 
       <Modal
         open={deleteTarget !== null}

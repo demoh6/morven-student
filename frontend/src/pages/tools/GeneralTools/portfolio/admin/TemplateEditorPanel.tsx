@@ -1,14 +1,33 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, FileText, Save } from 'lucide-react';
-import { Badge, Button, Card, Input, Select } from '@/components/UI';
-import { getBatchById, getSubjectById, getUniversityById } from '../data/mock';
+import { ArrowRight, FileText, Plus, Save } from 'lucide-react';
+import { Button, Card, Input, Select } from '@/components/UI';
+import { useAppStore } from '@/store/useAppStore';
+import {
+  createAdminCohort,
+  createAdminCourse,
+  createAdminUniversity,
+  type CohortPayload,
+  type CoursePayload,
+  type UniversityPayload,
+} from '../api/portfolioApi';
+import {
+  getBatchById,
+  getBatchesForUniversity,
+  getSubjectById,
+  getSubjectsFor,
+  getUniversityById,
+  usePortfolioCatalogStore,
+} from '../data/catalog';
 import type {
   AdminPortfolioTemplate,
   TemplateStatus,
 } from './usePortfolioAdminStore';
 import { nextAdminTemplateId, toPdfTemplateDefinition } from './usePortfolioAdminStore';
 import type { TemplateFieldDefinition } from '../model';
+import CohortFormModal from './catalog/CohortFormModal';
+import CourseFormModal from './catalog/CourseFormModal';
+import UniversityFormModal from './catalog/UniversityFormModal';
 import PdfTemplateEditor from './PdfTemplateEditor';
 
 interface TemplateEditorPanelProps {
@@ -18,6 +37,12 @@ interface TemplateEditorPanelProps {
   onSave: (template: AdminPortfolioTemplate) => void;
 }
 
+type AddKind = 'university' | 'cohort' | 'course' | null;
+
+const ADD_UNIVERSITY = '__add_university__';
+const ADD_COHORT = '__add_cohort__';
+const ADD_COURSE = '__add_course__';
+
 const kindOptions = [
   { value: 'مقرر دراسي', label: 'مقرر دراسي' },
   { value: 'مشروع تخرج', label: 'مشروع تخرج' },
@@ -26,22 +51,100 @@ const kindOptions = [
 ];
 
 export default function TemplateEditorPanel({ existing, selection, onBack, onSave }: TemplateEditorPanelProps) {
+  const universities = usePortfolioCatalogStore((s) => s.universities);
+  usePortfolioCatalogStore((s) => s.batches);
+  usePortfolioCatalogStore((s) => s.subjects);
+  const addNotification = useAppStore((s) => s.addNotification);
+
   const [name, setName] = useState(existing?.name ?? '');
   const [kind, setKind] = useState(existing?.kind ?? (selection ? getSubjectById(selection.subjectId)?.portfolioKind ?? 'مقرر دراسي' : 'مقرر دراسي'));
+  const [specialty, setSpecialty] = useState(existing?.specialty ?? '');
   const [status, setStatus] = useState<TemplateStatus>(existing?.status ?? 'draft');
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(existing?.pdfBytes ?? null);
   const [pdfName, setPdfName] = useState(existing?.pdfName ?? '');
   const [fields, setFields] = useState<TemplateFieldDefinition[]>(existing?.fields ?? []);
 
-  const universityId = existing?.universityId ?? selection?.universityId ?? '';
-  const batchId = existing?.batchId ?? selection?.batchId ?? '';
-  const subjectId = existing?.subjectId ?? selection?.subjectId ?? '';
+  const [universityId, setUniversityId] = useState(existing?.universityId ?? selection?.universityId ?? '');
+  const [batchId, setBatchId] = useState(existing?.batchId ?? selection?.batchId ?? '');
+  const [subjectId, setSubjectId] = useState(existing?.subjectId ?? selection?.subjectId ?? '');
+  const [addKind, setAddKind] = useState<AddKind>(null);
 
   const university = getUniversityById(universityId);
   const batch = getBatchById(batchId);
   const subject = getSubjectById(subjectId);
 
-  const canSave = Boolean(university && batch && subject);
+  const canSave = Boolean(universityId && batchId && subjectId && university && batch && subject);
+
+  const universityOptions = [
+    ...universities.map((u) => ({ value: u.id, label: u.name })),
+    { value: ADD_UNIVERSITY, label: '+ إضافة جامعة جديدة' },
+  ];
+
+  const cohortOptions = universityId
+    ? [
+        ...getBatchesForUniversity(universityId).map((b) => ({ value: b.id, label: `${b.label} — ${b.academicYears}` })),
+        { value: ADD_COHORT, label: '+ إضافة دفعة جديدة' },
+      ]
+    : [{ value: '', label: 'اختر الجامعة أولاً', disabled: true }];
+
+  const courseOptions =
+    universityId && batchId
+      ? [
+          ...getSubjectsFor(universityId, batchId).map((s) => ({ value: s.id, label: s.name })),
+          { value: ADD_COURSE, label: '+ إضافة مادة جديدة' },
+        ]
+      : [{ value: '', label: 'اختر الدفعة أولاً', disabled: true }];
+
+  const handleUniversityChange = (value: string) => {
+    if (value === ADD_UNIVERSITY) {
+      setAddKind('university');
+      return;
+    }
+    setUniversityId(value);
+    setBatchId('');
+    setSubjectId('');
+  };
+
+  const handleCohortChange = (value: string) => {
+    if (value === ADD_COHORT) {
+      setAddKind('cohort');
+      return;
+    }
+    setBatchId(value);
+    setSubjectId('');
+  };
+
+  const handleCourseChange = (value: string) => {
+    if (value === ADD_COURSE) {
+      setAddKind('course');
+      return;
+    }
+    setSubjectId(value);
+  };
+
+  const submitQuickAddUniversity = async (payload: UniversityPayload) => {
+    const created = await createAdminUniversity(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setUniversityId(created.id);
+    setBatchId('');
+    setSubjectId('');
+    addNotification('تم إضافة الجامعة بنجاح', 'success');
+  };
+
+  const submitQuickAddCohort = async (payload: CohortPayload) => {
+    const created = await createAdminCohort(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setBatchId(created.id);
+    setSubjectId('');
+    addNotification('تم إضافة الدفعة بنجاح', 'success');
+  };
+
+  const submitQuickAddCourse = async (payload: CoursePayload) => {
+    const created = await createAdminCourse(payload);
+    await usePortfolioCatalogStore.getState().load(true);
+    setSubjectId(created.id);
+    addNotification('تم إضافة المادة بنجاح', 'success');
+  };
 
   const template = useMemo(
     () =>
@@ -52,13 +155,14 @@ export default function TemplateEditorPanel({ existing, selection, onBack, onSav
         batchId,
         subjectId,
         kind,
+        specialty,
         status,
         pdfName,
         pdfBytes,
         fields,
         createdAt: existing?.createdAt ?? Date.now(),
       }),
-    [existing, name, kind, status, universityId, batchId, subjectId, pdfName, pdfBytes, fields, subject],
+    [existing, name, kind, specialty, status, universityId, batchId, subjectId, pdfName, pdfBytes, fields, subject],
   );
 
   const handleSaveTemplate = () => {
@@ -69,6 +173,7 @@ export default function TemplateEditorPanel({ existing, selection, onBack, onSav
       batchId,
       subjectId,
       kind,
+      specialty,
       status,
       pdfName,
       pdfBytes,
@@ -119,13 +224,39 @@ export default function TemplateEditorPanel({ existing, selection, onBack, onSav
                     ))}
                   </div>
                 </div>
+                <Input
+                  label="التخصص"
+                  value={specialty}
+                  onChange={(e) => setSpecialty(e.target.value)}
+                  placeholder="مثال: طب الأطفال، الجراحة العامة"
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="primary" size="md">{university?.name ?? '—'}</Badge>
-              <Badge variant="secondary" size="md">{batch?.label ?? '—'}</Badge>
-              <Badge variant="info" size="md">{subject?.name ?? '—'}</Badge>
+            <div className="w-full lg:max-w-sm space-y-3">
+              <Select
+                label="الجامعة"
+                value={universityId}
+                onChange={(e) => handleUniversityChange(e.target.value)}
+                options={universityOptions}
+                placeholder="اختر الجامعة"
+              />
+              <Select
+                label="الدفعة"
+                value={batchId}
+                onChange={(e) => handleCohortChange(e.target.value)}
+                options={cohortOptions}
+                placeholder="اختر الدفعة"
+                disabled={!universityId}
+              />
+              <Select
+                label="المقرر"
+                value={subjectId}
+                onChange={(e) => handleCourseChange(e.target.value)}
+                options={courseOptions}
+                placeholder="اختر المقرر"
+                disabled={!batchId}
+              />
             </div>
           </div>
 
@@ -154,6 +285,29 @@ export default function TemplateEditorPanel({ existing, selection, onBack, onSav
           setPdfName(pdf.pdfName);
           setPdfBytes(pdf.pdfBytes);
         }}
+      />
+
+      <UniversityFormModal
+        open={addKind === 'university'}
+        existing={null}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddUniversity}
+      />
+      <CohortFormModal
+        open={addKind === 'cohort'}
+        existing={null}
+        universityId={universityId}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddCohort}
+      />
+      <CourseFormModal
+        open={addKind === 'course'}
+        existing={null}
+        universityId={universityId}
+        cohorts={getBatchesForUniversity(universityId)}
+        defaultBatchId={batchId}
+        onClose={() => setAddKind(null)}
+        onSubmit={submitQuickAddCourse}
       />
     </div>
   );

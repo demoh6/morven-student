@@ -551,6 +551,118 @@ model AdhkarProgress {
   @@map("adhkar_progress")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Portfolio Builder (الملف الجامعي)
+//
+// The Portfolio Builder tool was previously entirely frontend: universities,
+// cohorts (batches), courses and the admin PDF templates all lived in an
+// in-memory mock module and were lost on reload. These models make that data
+// durable. The IDs of the seeded rows intentionally reuse the stable slugs the
+// frontend used before (e.g. "u-najah", "u-najah-4", "s-najah-civil") so any
+// existing template references keep pointing at the same entities.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model University {
+  id          String   @id @default(uuid())
+  name        String
+  nameEn      String?  @map("name_en")
+  city        String
+  shortCode   String   @map("short_code")
+  color       String
+  established Int
+  students    String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  cohorts     Cohort[]
+  courses     Course[]
+  templates   PortfolioTemplate[]
+
+  @@unique([name])
+  @@map("universities")
+}
+
+// A graduation batch / academic-year group within a university. "Cohort" is the
+// backend name for what the frontend calls a "batch". `sortOrder` is mapped to a
+// non-reserved column name because "order" is a SQL keyword.
+model Cohort {
+  id            String              @id @default(uuid())
+  universityId  String              @map("university_id")
+  label         String
+  sortOrder     Int                 @map("sort_order")
+  academicYears String              @map("academic_years")
+  description   String?
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+  university    University          @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  courses       CourseCohort[]
+  templates     PortfolioTemplate[]
+
+  @@unique([universityId, label])
+  @@index([universityId])
+  @@map("cohorts")
+}
+
+// A course / subject offered by a university. Named "Course" on the backend and
+// "subject" on the frontend. Portfolio kind (مقرر / مشروع تخرج / ...) describes
+// the type of portfolio the course uses.
+model Course {
+  id            String              @id @default(uuid())
+  universityId  String              @map("university_id")
+  name          String
+  code          String?
+  description   String
+  portfolioKind String              @map("portfolio_kind")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+  university    University          @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  cohorts       CourseCohort[]
+  templates     PortfolioTemplate[]
+
+  @@unique([universityId, name])
+  @@index([universityId])
+  @@map("courses")
+}
+
+// Which cohorts a course is offered to (replaces the frontend `batchIds[]`).
+model CourseCohort {
+  courseId String @map("course_id")
+  cohortId String @map("cohort_id")
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  cohort   Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  @@id([courseId, cohortId])
+  @@index([cohortId])
+  @@map("course_cohorts")
+}
+
+// An admin-authored portfolio template. The original uploaded PDF is the source
+// of truth and its bytes are stored in PostgreSQL (same pattern as StoredImage)
+// so they survive container restarts. `fields` is the admin-defined placement of
+// student fields on the PDF. `status` is "draft" | "published"; only published
+// templates with fields and PDF bytes are offered to students.
+model PortfolioTemplate {
+  id           String     @id @default(uuid())
+  name         String
+  universityId String     @map("university_id")
+  cohortId     String     @map("cohort_id")
+  courseId     String     @map("course_id")
+  kind         String
+  specialty    String?
+  status       String     @default("draft")
+  pdfName      String     @map("pdf_name")
+  pdfBytes     Bytes?     @map("pdf_bytes")
+  fields       Json       @default("[]")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  cohort       Cohort     @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  course       Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([universityId, cohortId, courseId])
+  @@index([status])
+  @@map("portfolio_templates")
+}
+
 model UserPreference {
   id     String @id @default(uuid())
   userId String @unique @map("user_id")

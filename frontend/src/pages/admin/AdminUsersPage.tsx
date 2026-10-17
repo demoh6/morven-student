@@ -142,12 +142,21 @@ export default function AdminUsersPage() {
                     className="flex flex-col sm:flex-row sm:items-center gap-4 px-5 py-4"
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <Avatar src={user.avatarUrl} name={user.displayName} size="md" />
+                      <Link
+                        to={`/connect/profile/${user.username}`}
+                        className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                        aria-label={`عرض ملف ${user.displayName}`}
+                      >
+                        <Avatar src={user.avatarUrl} name={user.displayName} size="md" />
+                      </Link>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                          <Link
+                            to={`/connect/profile/${user.username}`}
+                            className="text-sm font-semibold text-gray-900 dark:text-white hover:text-primary-500 dark:hover:text-primary-400 transition-colors truncate"
+                          >
                             {user.displayName}
-                          </span>
+                          </Link>
                           {isSelf && (
                             <Badge variant="info" size="sm">أنت</Badge>
                           )}

@@ -5,8 +5,16 @@ import PortfolioBuilder from './PortfolioBuilder';
 import { useAuthStore } from '@/pages/auth/useAuthStore';
 import type { AuthUser } from '@/pages/auth/authApi';
 import { ROLE_USER } from '@/pages/auth/roles';
-import { usePortfolioAdminStore, type AdminPortfolioTemplate } from './admin/usePortfolioAdminStore';
+import type { MockBatch, MockSubject, MockUniversity } from './types';
+import type { AdminPortfolioTemplate } from './admin/usePortfolioAdminStore';
+import { usePortfolioCatalogStore } from './data/catalog';
+import { fetchPublishedTemplate } from './api/portfolioApi';
 import { loadPdfDocument, getPageLayout, renderPageToCanvas, type PdfDocProxy } from './services/pdfjs';
+
+vi.mock('./api/portfolioApi', () => ({
+  fetchCatalog: vi.fn(),
+  fetchPublishedTemplate: vi.fn(),
+}));
 
 vi.mock('./services/pdfjs', () => ({
   loadPdfDocument: vi.fn(),
@@ -17,6 +25,13 @@ vi.mock('./services/pdfjs', () => ({
 }));
 
 const A4 = { width: 595.28, height: 841.89, cssWidth: 595.28, cssHeight: 841.89 };
+
+const najah: MockUniversity = { id: 'u-najah', name: 'جامعة النجاح الوطنية', nameEn: 'An-Najah National University', city: 'نابلس', shortCode: 'نج', color: '#1b5e20', established: 1977, students: '22,000+' };
+const birzeit: MockUniversity = { id: 'u-birzeit', name: 'جامعة بيرزيت', nameEn: 'Birzeit University', city: 'بيرزيت', shortCode: 'ب', color: '#0d47a1', established: 1924, students: '14,000+' };
+const najah3: MockBatch = { id: 'u-najah-3', universityId: 'u-najah', label: 'السنة الثالثة', order: 3, academicYears: '2023/2024', description: 'الدفعة الثالثة' };
+const birzeit2: MockBatch = { id: 'u-birzeit-2', universityId: 'u-birzeit', label: 'السنة الثانية', order: 2, academicYears: '2024/2025', description: 'الدفعة الثانية' };
+const najahCivil: MockSubject = { id: 's-najah-civil', universityId: 'u-najah', batchIds: ['u-najah-3'], name: 'الهندسة المدنية', code: 'CIV', description: 'تصميم المنشآت', portfolioKind: 'مشروع تخرج' };
+const birzeitPharm: MockSubject = { id: 's-birz-pharm', universityId: 'u-birzeit', batchIds: ['u-birzeit-2'], name: 'الصيدلة', code: 'PHR', description: 'العلوم الدوائية', portfolioKind: 'ملف إنجاز' };
 
 function loggedInStudent(): AuthUser {
   return {
@@ -30,6 +45,17 @@ function loggedInStudent(): AuthUser {
   };
 }
 
+function seedCatalog() {
+  usePortfolioCatalogStore.setState({
+    universities: [najah, birzeit],
+    batches: [najah3, birzeit2],
+    subjects: [najahCivil, birzeitPharm],
+    loaded: true,
+    loading: false,
+    error: null,
+  });
+}
+
 function renderBuilder() {
   return render(
     <MemoryRouter>
@@ -41,7 +67,8 @@ function renderBuilder() {
 describe('PortfolioBuilder student flow', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: loggedInStudent(), initialized: true, loading: false });
-    usePortfolioAdminStore.setState({ templates: [] });
+    seedCatalog();
+    vi.mocked(fetchPublishedTemplate).mockResolvedValue(null);
     vi.mocked(loadPdfDocument).mockResolvedValue({ numPages: 1 } as unknown as PdfDocProxy);
     vi.mocked(getPageLayout).mockResolvedValue(A4);
     vi.mocked(renderPageToCanvas).mockResolvedValue(A4);
@@ -71,7 +98,7 @@ describe('PortfolioBuilder student flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /انتقل إلى التحرير/ }));
 
     // Editor opens with grouped sections.
-    expect(screen.getByText('الجامعة والمقرر')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('الجامعة والمقرر')).toBeInTheDocument());
     expect(screen.getAllByText('معلومات الطالب').length).toBeGreaterThan(0);
 
     // Required "student photo" missing ⇒ continue disabled.
@@ -95,7 +122,7 @@ describe('PortfolioBuilder student flow', () => {
     expect(screen.getByText('التصدير متاح في المرحلة القادمة')).toBeInTheDocument();
   });
 
-  it('offers reset buttons only after the field deviates from the document default', () => {
+  it('offers reset buttons only after the field deviates from the document default', async () => {
     renderBuilder();
     fireEvent.click(screen.getByRole('button', { name: 'ابدأ الإنشاء' }));
 
@@ -106,6 +133,7 @@ describe('PortfolioBuilder student flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /الصيدلة/ }));
     fireEvent.click(screen.getByRole('button', { name: /انتقل إلى التحرير/ }));
 
+    await waitFor(() => expect(screen.getByText('الجامعة والمقرر')).toBeInTheDocument());
     expect(screen.queryByText('إعادة النص الأصلي')).not.toBeInTheDocument();
 
     const nameInput = screen.getByDisplayValue('أحمد محمد النجار');
@@ -114,7 +142,7 @@ describe('PortfolioBuilder student flow', () => {
   });
 });
 
-function walkNajahCivil() {
+async function walkNajahCivil() {
   fireEvent.click(screen.getByRole('button', { name: 'ابدأ الإنشاء' }));
   fireEvent.click(screen.getByRole('button', { name: /جامعة النجاح الوطنية/ }));
   fireEvent.click(screen.getByRole('button', { name: /^متابعة$/ }));
@@ -122,6 +150,7 @@ function walkNajahCivil() {
   fireEvent.click(screen.getByRole('button', { name: /^متابعة$/ }));
   fireEvent.click(screen.getByRole('button', { name: /الهندسة المدنية/ }));
   fireEvent.click(screen.getByRole('button', { name: /انتقل إلى التحرير/ }));
+  await waitFor(() => expect(screen.getAllByText('معلومات الطالب').length).toBeGreaterThan(0));
 }
 
 const publishedAdminTemplate: AdminPortfolioTemplate = {
@@ -131,6 +160,7 @@ const publishedAdminTemplate: AdminPortfolioTemplate = {
   batchId: 'u-najah-3',
   subjectId: 's-najah-civil',
   kind: 'مشروع تخرج',
+  specialty: 'الهندسة المدنية',
   status: 'published',
   pdfName: 'real.pdf',
   pdfBytes: new Uint8Array([1, 2, 3]),
@@ -144,15 +174,16 @@ const publishedAdminTemplate: AdminPortfolioTemplate = {
 describe('PortfolioBuilder with an admin-uploaded PDF template', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: loggedInStudent(), initialized: true, loading: false });
+    seedCatalog();
+    vi.mocked(fetchPublishedTemplate).mockResolvedValue(publishedAdminTemplate);
     vi.mocked(loadPdfDocument).mockResolvedValue({ numPages: 1 } as unknown as PdfDocProxy);
     vi.mocked(getPageLayout).mockResolvedValue(A4);
     vi.mocked(renderPageToCanvas).mockResolvedValue(A4);
   });
 
   it('renders the real PDF template instead of the mock document for the student', async () => {
-    usePortfolioAdminStore.setState({ templates: [publishedAdminTemplate] });
     renderBuilder();
-    walkNajahCivil();
+    await walkNajahCivil();
 
     // The Phase 1 mock document is NOT rendered when a real template exists.
     expect(screen.queryByText(/مقدّم إلى مؤسسة/)).not.toBeInTheDocument();
@@ -170,9 +201,8 @@ describe('PortfolioBuilder with an admin-uploaded PDF template', () => {
   });
 
   it('shows an uploaded student image inside the admin-defined PDF region', async () => {
-    usePortfolioAdminStore.setState({ templates: [publishedAdminTemplate] });
     renderBuilder();
-    walkNajahCivil();
+    await walkNajahCivil();
 
     fireEvent.change(screen.getByLabelText('الصورة الشخصية'), {
       target: { files: [new File(['img'], 'p.png', { type: 'image/png' })] },

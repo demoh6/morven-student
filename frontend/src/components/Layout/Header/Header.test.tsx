@@ -81,19 +81,11 @@ describe('Header account menu suggestions entries', () => {
     openMenu(adminUser.displayName);
 
     expect(screen.getByText('إدارة المستخدمين')).toBeInTheDocument();
-    expect(screen.getAllByText('الاقتراحات')).toHaveLength(2);
+    expect(screen.getAllByText('الاقتراحات')).toHaveLength(1);
+    expect(screen.getByText('أدوات الإدارة')).toBeInTheDocument();
   });
 
-  it('navigates to /admin/suggestions when an admin clicks the admin suggestions entry', () => {
-    useAuthStore.setState({ user: adminUser });
-    renderHeader();
-    openMenu(adminUser.displayName);
 
-    const entries = screen.getAllByText('الاقتراحات');
-    fireEvent.click(entries[entries.length - 1]);
-
-    expect(screen.getByText('ADMIN-SUGGESTIONS-PAGE')).toBeInTheDocument();
-  });
 
   it('does not show admin management entries for a regular user', () => {
     useAuthStore.setState({ user: regularUser });
@@ -103,6 +95,7 @@ describe('Header account menu suggestions entries', () => {
     expect(screen.queryByText('إدارة المستخدمين')).not.toBeInTheDocument();
     const entries = screen.getAllByText('الاقتراحات');
     expect(entries).toHaveLength(1);
+    expect(screen.queryByText('أدوات الإدارة')).not.toBeInTheDocument();
   });
 
   it('lets a regular user click the user suggestions entry', () => {
@@ -129,7 +122,8 @@ describe('Header account menu suggestions entries', () => {
     openMenu(subAdminUser.displayName);
 
     expect(screen.queryByText('إدارة المستخدمين')).not.toBeInTheDocument();
-    expect(screen.getAllByText('الاقتراحات')).toHaveLength(2);
-    expect(screen.getByText('مراجعة الأذكار')).toBeInTheDocument();
+    expect(screen.getAllByText('الاقتراحات')).toHaveLength(1);
+    expect(screen.getByText('أدوات الإدارة')).toBeInTheDocument();
+    expect(screen.getByText('أدوات الإدارة')).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, Plus } from 'lucide-react';
 import { Button, Card, Input, Badge } from '@/components/UI';
 
 export interface SelectionOption {
@@ -28,6 +28,8 @@ interface SelectionGridProps {
   continueLabel?: string;
   searchPlaceholder: string;
   emptyLabel: string;
+  addNewLabel?: string;
+  onAddNew?: () => void;
 }
 
 export default function SelectionGrid({
@@ -44,6 +46,8 @@ export default function SelectionGrid({
   continueLabel,
   searchPlaceholder,
   emptyLabel,
+  addNewLabel,
+  onAddNew,
 }: SelectionGridProps) {
   const [query, setQuery] = useState('');
 
@@ -78,6 +82,17 @@ export default function SelectionGrid({
           </svg>
         }
       />
+
+      {onAddNew && (
+        <button
+          type="button"
+          onClick={onAddNew}
+          className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary-400 dark:border-primary-600 bg-primary-50/40 dark:bg-primary-900/10 px-4 py-3 text-sm font-semibold text-primary-600 dark:text-primary-400 transition-colors hover:bg-primary-50 dark:hover:bg-primary-900/20"
+        >
+          <Plus className="w-4 h-4" />
+          {addNewLabel ?? '+ إضافة جديد'}
+        </button>
+      )}
 
       {filtered.length === 0 ? (
         <Card className="text-center py-10">

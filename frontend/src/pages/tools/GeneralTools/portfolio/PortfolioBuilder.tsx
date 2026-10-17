@@ -1,37 +1,26 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Building2, CalendarDays, Eye, FileDown, GraduationCap, PenLine } from 'lucide-react';
 import { Badge, Button, Card } from '@/components/UI';
 import type { PortfolioField } from './types';
-import { buildPortfolioFields, getBatchById, getBatchesForUniversity, getSubjectById, getSubjectsFor, getTemplateForSubject, getUniversityById, mockUniversities, SECTION } from './data/mock';
+import { buildPortfolioFields, getTemplateForSubject, SECTION } from './data/mock';
+import {
+  getBatchById,
+  getBatchesForUniversity,
+  getSubjectById,
+  getSubjectsFor,
+  getUniversityById,
+  usePortfolioCatalogStore,
+} from './data/catalog';
+import { fetchPublishedTemplate } from './api/portfolioApi';
 import { portfolioLabels } from './labels';
-import { usePortfolioAdminStore, type AdminPortfolioTemplate } from './admin/usePortfolioAdminStore';
+import type { AdminPortfolioTemplate } from './admin/usePortfolioAdminStore';
 
 /**
  * The admin-uploaded PDF is the source of truth. A published admin template is
  * only usable when it has both field definitions and the original PDF bytes;
  * otherwise the Phase 1 mock document remains the fallback.
  */
-function findPublishedAdminTemplate(selection: {
-  universityId: string;
-  batchId: string;
-  subjectId: string;
-}): AdminPortfolioTemplate | null {
-  return (
-    usePortfolioAdminStore
-      .getState()
-      .templates.find(
-        (t) =>
-          t.status === 'published' &&
-          t.universityId === selection.universityId &&
-          t.batchId === selection.batchId &&
-          t.subjectId === selection.subjectId &&
-          t.fields.length > 0 &&
-          (t.pdfBytes?.length ?? 0) > 0,
-      ) ?? null
-  );
-}
-
 function buildFieldsFromAdminTemplate(template: AdminPortfolioTemplate): PortfolioField[] {
   return template.fields.map((f) => ({
     id: f.id,
@@ -70,6 +59,14 @@ export default function PortfolioBuilder() {
   const [adminTemplate, setAdminTemplate] = useState<AdminPortfolioTemplate | null>(null);
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
 
+  const universities = usePortfolioCatalogStore((s) => s.universities);
+  const catalogLoading = usePortfolioCatalogStore((s) => s.loading);
+  const catalogError = usePortfolioCatalogStore((s) => s.error);
+
+  useEffect(() => {
+    usePortfolioCatalogStore.getState().load();
+  }, []);
+
   const l = portfolioLabels;
 
   const selectedUniversity = universityId ? getUniversityById(universityId) : undefined;
@@ -97,18 +94,22 @@ export default function PortfolioBuilder() {
 
   const enterFlow = () => setEntered(true);
 
-  const selectSubject = (id: string) => {
+  const selectSubject = async (id: string) => {
     const subject = getSubjectById(id);
     const uni = selectedUniversity;
     const batch = selectedBatch;
     if (!subject || !uni || !batch) return;
-    const realTemplate = findPublishedAdminTemplate({
-      universityId: uni.id,
-      batchId: batch.id,
-      subjectId: subject.id,
-    });
-    if (realTemplate) {
+
+    let realTemplate: AdminPortfolioTemplate | null = null;
+    try {
+      realTemplate = await fetchPublishedTemplate(uni.id, batch.id, subject.id);
+    } catch {
+      realTemplate = null;
+    }
+
+    if (realTemplate && realTemplate.fields.length > 0) {
       setFields(buildFieldsFromAdminTemplate(realTemplate));
+      setAdminTemplate(realTemplate);
     } else {
       setFields(
         buildPortfolioFields({
@@ -117,8 +118,8 @@ export default function PortfolioBuilder() {
           course: subject.name,
         }),
       );
+      setAdminTemplate(null);
     }
-    setAdminTemplate(realTemplate);
     setSubjectId(id);
     setStep('editor');
     setActiveTab('edit');
@@ -163,28 +164,35 @@ export default function PortfolioBuilder() {
   let content: React.ReactNode;
   if (step === 'university') {
     content = (
-      <SelectionGrid
-        options={mockUniversities.map<SelectionOption>((u) => ({
-          id: u.id,
-          title: u.name,
-          subtitle: u.city,
-          badge: `${getBatchesForUniversity(u.id).length} دفعات`,
-          meta: l.steps.university.established(u.established),
-          initials: u.shortCode,
-          accent: u.color,
-        }))}
-        title={l.steps.university.title}
-        description={l.steps.university.subtitle}
-        searchPlaceholder={l.steps.university.searchPlaceholder}
-        emptyLabel={l.steps.university.empty}
-        selectedId={universityId}
-        onSelect={setUniversityId}
-        onContinue={handleContinue}
-        continueDisabled={continueDisabled()}
-        onBack={() => setEntered(false)}
-        backLabel={l.steps.university.back}
-        continueLabel={l.steps.university.continue}
-      />
+      <>
+        {catalogError && (
+          <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+            {catalogError}
+          </div>
+        )}
+        <SelectionGrid
+          options={universities.map<SelectionOption>((u) => ({
+            id: u.id,
+            title: u.name,
+            subtitle: u.city,
+            badge: `${getBatchesForUniversity(u.id).length} دفعات`,
+            meta: l.steps.university.established(u.established),
+            initials: u.shortCode,
+            accent: u.color,
+          }))}
+          title={l.steps.university.title}
+          description={l.steps.university.subtitle}
+          searchPlaceholder={l.steps.university.searchPlaceholder}
+          emptyLabel={catalogLoading ? 'جارٍ تحميل الجامعات...' : l.steps.university.empty}
+          selectedId={universityId}
+          onSelect={setUniversityId}
+          onContinue={handleContinue}
+          continueDisabled={continueDisabled()}
+          onBack={() => setEntered(false)}
+          backLabel={l.steps.university.back}
+          continueLabel={l.steps.university.continue}
+        />
+      </>
     );
   } else if (step === 'batch') {
     const options = (universityId ? getBatchesForUniversity(universityId) : []).map<SelectionOption>((b) => ({

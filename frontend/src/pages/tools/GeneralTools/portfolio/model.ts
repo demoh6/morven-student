@@ -45,6 +45,8 @@ export interface PdfTemplateDefinition {
   batchId: string;
   subjectId: string;
   kind: string;
+  /** Optional specialty (التخصص) the template targets, e.g. "طب الأطفال". */
+  specialty?: string;
   status: TemplateStatus;
   /** Name of the uploaded original PDF (immutable source of truth reference). */
   pdfName: string;

@@ -54,7 +54,7 @@ export const tools: Tool[] = [
   { id: 'pomodoro-timer', name: 'مؤقت بومودورو', description: 'تعزيز الإنتاجية بجلسات دراسة محددة الوقت', icon: Timer, category: 'general' },
   { id: 'exam-countdown', name: 'عد تنازلي للامتحان', description: 'تتبع الأيام المتبقية حتى امتحاناتك', icon: Calendar, category: 'general' },
   { id: 'cv-builder', name: 'منشئ السيرة الذاتية', description: 'أنشئ سيرة ذاتية احترافية بتصميمات متعددة وتصديرها كملف PDF', icon: FileText, category: 'general' },
-  { id: 'portfolio-builder', name: 'منشئ ملف ال Portfolio  ', description: 'عبّئ مستند ملفّك الجاهز بمعلوماتك مع معاينة حية، وصدّره Word أو PDF', icon: Stamp, comingSoon: true, category: 'general' },
+  { id: 'portfolio-builder', name: 'منشئ ملف ال Portfolio  ', description: 'عبّئ مستند ملفّك الجاهز بمعلوماتك مع معاينة حية، وصدّره Word أو PDF', icon: Stamp, category: 'general' },
 
   // MEDICAL
   { id: 'disease-explain', name: 'شرح الأمراض', description: 'الحصول على شروحات بسيطة للأمراض والحالات', icon: Stethoscope, category: 'medical' },

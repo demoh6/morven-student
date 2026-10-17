@@ -26,6 +26,7 @@ import userFileRoutes from "./routes/userFile";
 import pomodoroStatsRoutes from "./routes/pomodoroStats";
 import adhkarProgressRoutes from "./routes/adhkarProgress";
 import userPreferenceRoutes from "./routes/userPreference";
+import portfolioRoutes from "./routes/portfolio";
 import adminRoutes from "./routes/admin";
 import { UPLOADS_DIR, ensureUploadsDir } from "./lib/uploads";
 import { getStoredImage } from "./services/imageStore.service";
@@ -176,6 +177,7 @@ app.use(userFileRoutes);
 app.use(pomodoroStatsRoutes);
 app.use(adhkarProgressRoutes);
 app.use(userPreferenceRoutes);
+app.use(portfolioRoutes);
 app.use(adminRoutes);
 
 // Existing file-processing routes (no auth required)
