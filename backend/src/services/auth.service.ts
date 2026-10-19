@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import prisma from "../lib/prisma";
 import {
   buildPasswordResetUrl,
@@ -105,33 +106,21 @@ function generateRawRefreshToken(): string {
   return crypto.randomBytes(40).toString("hex");
 }
 
-export async function createRefreshToken(userId: string): Promise<string> {
+export async function createRefreshToken(
+  userId: string,
+  // Accepts the interactive-transaction client so callers can atomically pair
+  // a revoke with the successor mint (see refreshAccessToken).
+  db: Prisma.TransactionClient = prisma
+): Promise<string> {
   const rawToken = generateRawRefreshToken();
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
 
-  await prisma.refreshToken.create({
+  await db.refreshToken.create({
     data: { tokenHash, userId, expiresAt },
   });
 
   return rawToken;
-}
-
-export async function validateRefreshToken(
-  rawToken: string
-): Promise<{ userId: string } | null> {
-  const tokenHash = hashToken(rawToken);
-  const record = await prisma.refreshToken.findUnique({
-    where: { tokenHash },
-  });
-
-  if (!record) return null;
-  if (record.expiresAt < new Date()) {
-    await prisma.refreshToken.delete({ where: { id: record.id } });
-    return null;
-  }
-
-  return { userId: record.userId };
 }
 
 export async function revokeRefreshToken(rawToken: string): Promise<void> {
@@ -411,26 +400,55 @@ export async function loginUser(input: LoginInput) {
 }
 
 export async function refreshAccessToken(rawRefreshToken: string) {
-  const result = await validateRefreshToken(rawRefreshToken);
-  if (!result) {
-    throw new AuthError("رمز التحديث غير صالح أو منتهي الصلاحية", 401);
+  const tokenHash = hashToken(rawRefreshToken);
+
+  // --- Classify BEFORE mutating anything -----------------------------------
+  // Diagnostics must never consume state: a probe of an already-dead token
+  // must not affect any other session, and a failed rotation must leave the
+  // client's existing cookie valid.
+  const record = await prisma.refreshToken.findUnique({ where: { tokenHash } });
+  if (!record) {
+    // Never issued, revoked by logout/password-reset, hard-deleted — or a
+    // replay of an already-rotated token. Indistinguishable by design (only
+    // SHA-256 hashes are stored); all are definitive dead sessions.
+    throw new AuthError("رمز التحديث غير صالح أو منتهي الصلاحية", 401, "REFRESH_TOKEN_NOT_FOUND");
+  }
+  if (record.expiresAt < new Date()) {
+    // Best-effort cleanup; a concurrent delete must not surface as a 500.
+    await prisma.refreshToken.delete({ where: { id: record.id } }).catch(() => undefined);
+    throw new AuthError("رمز التحديث غير صالح أو منتهي الصلاحية", 401, "REFRESH_TOKEN_EXPIRED");
   }
 
-  // Rotate: revoke old, issue new
-  await revokeRefreshToken(rawRefreshToken);
-
-  const user = await prisma.user.findUnique({ where: { id: result.userId }, include: { profile: { select: { avatarUrl: true } } } });
+  const user = await prisma.user.findUnique({ where: { id: record.userId }, include: { profile: { select: { avatarUrl: true } } } });
   if (!user) {
-    throw new AuthError("المستخدم غير موجود", 401);
+    // Resolve the user BEFORE consuming so a missing user can never revoke
+    // a (theoretically still-present) session half-way.
+    throw new AuthError("المستخدم غير موجود", 401, "AUTH_USER_NOT_FOUND");
+  }
+
+  // --- Atomic rotation -----------------------------------------------------
+  // Consume the old row and mint its successor in ONE transaction. `deleteMany`
+  // reports how many rows THIS transaction actually removed, so under
+  // concurrent replays exactly one caller can succeed: single-use tokens and
+  // replay protection come from the same atomic step, with no schema change
+  // and no grace period. A mid-rotation failure rolls back the consume, so the
+  // old token is never invalidated without a replacement reaching the client.
+  const rotatedToken = await prisma.$transaction(async (tx) => {
+    const consumed = await tx.refreshToken.deleteMany({ where: { tokenHash } });
+    if (consumed.count !== 1) return null;
+    return createRefreshToken(user.id, tx);
+  });
+  if (!rotatedToken) {
+    // Lost a rotation race: another request already consumed this token.
+    throw new AuthError("رمز التحديث غير صالح أو منتهي الصلاحية", 401, "REFRESH_TOKEN_REPLAYED");
   }
 
   const accessToken = generateAccessToken(user.id, user.role, user.username, user.displayName);
-  const refreshToken = await createRefreshToken(user.id);
 
   return {
     user: sanitizeUser(user, user.profile),
     accessToken,
-    refreshToken,
+    refreshToken: rotatedToken,
   };
 }
 

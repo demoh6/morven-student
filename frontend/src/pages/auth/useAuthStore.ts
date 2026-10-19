@@ -43,6 +43,9 @@ interface AuthState {
   setAvatarUrl: (url: string | null) => void;
   /** For handling explicit logout state - marks session as logged out. */
   markLoggedOut: () => void;
+  /** Called when a refresh definitively fails with HTTP 401: drop the local
+   *  identity so the UI never renders a misleading logged-in shell. */
+  invalidateSession: () => void;
 }
 
 export const useAuthStore = create(
@@ -204,6 +207,16 @@ export const useAuthStore = create(
       set({ user: null, hasPersistedSession: false, loggedOut: true });
     },
 
+    invalidateSession: () => {
+      // A refresh 401 is a server-confirmed dead session: drop the local
+      // identity so the UI never renders a misleading logged-in shell.
+      // `loggedOut` stays false — this is a session expiry, not an explicit
+      // user logout; a later boot still attempts refresh (the httpOnly cookie
+      // may have been replaced by another tab's successful rotation).
+      api.setAccessToken(null);
+      set({ user: null, hasPersistedSession: false, initialized: true, loading: false });
+    },
+
     clearError: () => set({ error: null }),
 
     setAvatarUrl: (url) =>
@@ -222,3 +235,15 @@ export const useAuthStore = create(
     },
   ),
 );
+
+// Wire a definitive refresh 401 (the single-flight path behind authedFetch /
+// authRequest / the media transport) into the same unauthenticated state a
+// boot-time 401 produces. Deliberately defensive: several test files mock
+// authApi with partial export factories, and vitest's mock proxy THROWS on
+// accessing an undefined export — even through `?.` — so the lookup must be
+// guarded by try/catch to keep those test doubles loading.
+try {
+  api.setSessionInvalidationHandler?.(() => useAuthStore.getState().invalidateSession());
+} catch {
+  // Partial authApi test double without this export — skip registration.
+}

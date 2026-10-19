@@ -41,6 +41,13 @@ function validateCsrfToken(req: Request, res: Response): boolean {
   const headerToken = req.headers["x-csrf-token"];
   const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
 
+  const reject = (): false => {
+    // `code` lets clients/tests distinguish a CSRF rejection (403) from an
+    // invalid-session rejection (401) without parsing messages.
+    res.status(403).json({ error: "غير مصرح", code: "CSRF_INVALID" });
+    return false;
+  };
+
   if (
     !headerToken ||
     typeof headerToken !== "string" ||
@@ -49,20 +56,17 @@ function validateCsrfToken(req: Request, res: Response): boolean {
     headerToken.length !== 64 ||
     cookieToken.length !== 64
   ) {
-    res.status(403).json({ error: "غير مصرح" });
-    return false;
+    return reject();
   }
 
   try {
     const headerBuf = Buffer.from(headerToken, "utf8");
     const cookieBuf = Buffer.from(cookieToken, "utf8");
     if (headerBuf.length !== cookieBuf.length || !crypto.timingSafeEqual(headerBuf, cookieBuf)) {
-      res.status(403).json({ error: "غير مصرح" });
-      return false;
+      return reject();
     }
   } catch {
-    res.status(403).json({ error: "غير مصرح" });
-    return false;
+    return reject();
   }
 
   return true;
@@ -235,7 +239,9 @@ router.post("/api/auth/refresh", async (req: Request, res: Response) => {
 
     const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!refreshToken) {
-      res.status(401).json({ error: "رمز التحديث غير موجود" });
+      // Distinguishes "cookie never arrived / was cleared" from "cookie
+      // present but dead" (REFRESH_TOKEN_* codes from the service layer).
+      res.status(401).json({ error: "رمز التحديث غير موجود", code: "REFRESH_COOKIE_MISSING" });
       return;
     }
 
@@ -249,6 +255,11 @@ router.post("/api/auth/refresh", async (req: Request, res: Response) => {
       accessToken: result.accessToken,
     });
   } catch (err) {
+    if (err instanceof AuthError) {
+      // Safe diagnostic for support: status + stable code only — raw refresh
+      // tokens and cookies are never logged (refresh 401s were invisible).
+      console.warn(`[auth] refresh rejected status=${err.status} code=${err.code ?? "NONE"}`);
+    }
     handleAuthError(err, res);
   }
 });

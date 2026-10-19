@@ -1,5 +1,6 @@
 import { toNetworkError } from './apiError';
 import { API_BASE } from './apiBase';
+import { authedFetch, getValidAccessToken, refreshTokenIfNeeded } from '@/pages/auth/authApi';
 
 const API_BASE_URL = API_BASE;
 
@@ -170,6 +171,14 @@ const IMAGE_OFFLINE_MESSAGE_AR =
 
 const AUDIO_OFFLINE_MESSAGE_AR =
   'أنت غير متصل بالإنترنت أو لا يمكن الوصول إلى خادم المعالجة. تتطلب معالجة الصوت اتصالاً بالخادم.';
+
+const SESSION_EXPIRED_MESSAGE_AR =
+  'انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجددًا.';
+
+/** The authenticated media request was rejected (401) even after refresh. */
+function sessionExpiredError(): MediaApiError {
+  return new MediaApiError('SESSION_EXPIRED', SESSION_EXPIRED_MESSAGE_AR);
+}
 
 export type MediaErrorKind = 'video' | 'image' | 'audio';
 
@@ -347,6 +356,8 @@ export function toArabicMediaError(err: unknown, kind: MediaErrorKind = 'video')
       return 'انتهت صلاحية مهمة المعالجة. يرجى إعادة المحاولة.';
     case 'JOB_PROCESSING':
       return 'ما زالت المعالجة جارية. انتظر حتى اكتمالها قبل التنزيل.';
+    case 'SESSION_EXPIRED':
+      return SESSION_EXPIRED_MESSAGE_AR;
   }
 
   if (detail.includes('corrupted')) {
@@ -405,44 +416,91 @@ function startMediaJob(
   cancelRef?: { jobId?: string },
   offlineMessage: string = OFFLINE_MESSAGE_AR
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE_URL}${endpoint}`);
-    xhr.responseType = 'json';
+  const MAX_ATTEMPTS = 2;
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        onProgress({
-          phase: 'uploading',
-          percent: Math.round((event.loaded / event.total) * 100),
-        });
-      }
-    };
-
-    xhr.onload = () => {
-      const body = (xhr.response || {}) as { jobId?: string; code?: string; error?: string };
-      if (xhr.status >= 200 && xhr.status < 300 && body.jobId) {
-        if (cancelRef) cancelRef.jobId = body.jobId;
-        resolve();
-        return;
-      }
-      if (xhr.status === 0) {
-        reject(toNetworkError(offlineMessage));
-        return;
-      }
-      reject(new MediaApiError(body.code || 'PROCESSING_FAILED', body.error || `فشل بدء المعالجة (${xhr.status}).`));
-    };
-
-    xhr.onerror = () => reject(toNetworkError(offlineMessage));
-    xhr.onabort = () => reject(toNetworkError(offlineMessage));
-
+  const buildForm = (): FormData => {
     const formData = new FormData();
     for (const { field, file } of files) {
       formData.append(field, file);
     }
     Object.entries(fields).forEach(([key, value]) => formData.append(key, value));
-    xhr.send(formData);
-  });
+    return formData;
+  };
+
+  const sendOnce = (attempt: number): Promise<'done' | 'retry-auth'> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}${endpoint}`);
+      xhr.responseType = 'json';
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          onProgress({
+            phase: 'uploading',
+            percent: Math.round((event.loaded / event.total) * 100),
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        const body = (xhr.response || {}) as { jobId?: string; code?: string; error?: string };
+        if (xhr.status >= 200 && xhr.status < 300 && body.jobId) {
+          if (cancelRef) cancelRef.jobId = body.jobId;
+          resolve('done');
+          return;
+        }
+        if (xhr.status === 0) {
+          reject(toNetworkError(offlineMessage));
+          return;
+        }
+        if (xhr.status === 401) {
+          // Access token expired (or missing after a reload): refresh once
+          // and replay the upload with the fresh token. A second 401 means
+          // the session itself is dead — surface a clear session error
+          // instead of the misleading generic processing failure.
+          if (attempt + 1 < MAX_ATTEMPTS) {
+            resolve('retry-auth');
+          } else {
+            reject(sessionExpiredError());
+          }
+          return;
+        }
+        reject(new MediaApiError(body.code || 'PROCESSING_FAILED', body.error || `فشل بدء المعالجة (${xhr.status}).`));
+      };
+
+      xhr.onerror = () => reject(toNetworkError(offlineMessage));
+      xhr.onabort = () => reject(toNetworkError(offlineMessage));
+
+      // The media routes require `Authorization: Bearer <access token>`.
+      // `getValidAccessToken` performs a single-flight refresh when no token
+      // is held (fresh page reload). If token acquisition fails unexpectedly,
+      // send anyway and let the server be the judge (one retry path above).
+      void getValidAccessToken()
+        .catch(() => null)
+        .then((token) => {
+          try {
+            if (token) {
+              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            }
+            // Never set Content-Type manually — the browser must set the
+            // multipart boundary for FormData bodies.
+            xhr.send(buildForm());
+          } catch (err) {
+            // A synchronous failure here (e.g. a broken XHR state) must settle
+            // this promise; otherwise the whole upload would hang forever.
+            reject(toNetworkError(offlineMessage, err));
+          }
+        });
+    });
+
+  return (async () => {
+    for (let attempt = 0; ; attempt++) {
+      const outcome = await sendOnce(attempt);
+      if (outcome === 'done') return;
+      const refreshed = await refreshTokenIfNeeded().catch(() => false);
+      if (!refreshed) throw sessionExpiredError();
+    }
+  })();
 }
 
 const POLL_INTERVAL_MS = 1200;
@@ -462,9 +520,18 @@ async function pollMediaJob(
 
     let response: Response;
     try {
-      response = await fetch(`${API_BASE_URL}/api/media/jobs/${encodeURIComponent(jobId)}/status`);
+      // authedFetch attaches Authorization and performs a single-flight
+      // refresh + retry once on a 401, so a mid-job token expiry does not
+      // trigger a refresh storm from the 1.2s poll loop.
+      response = await authedFetch(`${API_BASE_URL}/api/media/jobs/${encodeURIComponent(jobId)}/status`);
     } catch (error) {
       throw toNetworkError(offlineMessage, error);
+    }
+
+    if (response.status === 401) {
+      // Refresh could not recover the session: fail fast with a clear
+      // session error instead of spinning until the 25-minute deadline.
+      throw sessionExpiredError();
     }
 
     let payload: JobStatusResponse;
@@ -506,9 +573,13 @@ async function fetchMediaResult(
 ): Promise<MediaResult> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/media/jobs/${encodeURIComponent(jobId)}${subPath}`);
+    response = await authedFetch(`${API_BASE_URL}/api/media/jobs/${encodeURIComponent(jobId)}${subPath}`);
   } catch (error) {
     throw toNetworkError(offlineMessage, error);
+  }
+
+  if (response.status === 401) {
+    throw sessionExpiredError();
   }
 
   if (!response.ok) {
@@ -1165,7 +1236,7 @@ export async function transcribeAudioFile(
 
 export async function cancelMediaJob(jobId: string): Promise<boolean> {
   try {
-    const response = await fetch(
+    const response = await authedFetch(
       `${API_BASE_URL}/api/media/jobs/${encodeURIComponent(jobId)}`,
       { method: 'DELETE' }
     );

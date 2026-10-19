@@ -110,6 +110,65 @@ function notifyTokenRotated(): void {
   tokenRotationHandler?.();
 }
 
+// ---------------------------------------------------------------------------
+// Centralized session invalidation (definitive refresh 401 only)
+//
+// When /api/auth/refresh rejects with an explicit HTTP 401 the refresh session
+// is genuinely dead (missing/invalid/expired/revoked refresh token) and the
+// frontend must drop its in-memory identity — otherwise the UI keeps rendering
+// a misleading logged-in shell backed by nothing. Network failures, timeouts
+// and 403 CSRF rejections are NOT session failures and must never invalidate.
+// ---------------------------------------------------------------------------
+
+let sessionInvalidationHandler: (() => void) | null = null;
+
+/**
+ * Register a callback fired when a refresh definitively fails with HTTP 401.
+ * Registered once by the auth store; may be a no-op (optional call) in test
+ * doubles that export only part of this module's surface.
+ */
+export function setSessionInvalidationHandler(handler: (() => void) | null): void {
+  sessionInvalidationHandler = handler;
+}
+
+function isConfirmedSessionRejection(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 401;
+}
+
+/**
+ * Cross-tab rotation race: another tab sharing this cookie jar rotated the
+ * single-use refresh token first. Whether our classify lookup ran before or
+ * after the winner's commit decides which code we see — the server reports the
+ * token as REPLAYED (we read the row, then the atomic consume found it gone) or
+ * NOT_FOUND (we read it after it was already rotated away). Both are retried
+ * once, because the winner's replacement cookie may already be in the shared
+ * jar. A genuinely dead token simply fails the retry too, then invalidates.
+ */
+const ROTATION_RACE_CODES = new Set(['REFRESH_TOKEN_REPLAYED', 'REFRESH_TOKEN_NOT_FOUND']);
+
+function isRotationRaceRejection(err: unknown): boolean {
+  return isConfirmedSessionRejection(err) && ROTATION_RACE_CODES.has((err as { code?: unknown }).code as string);
+}
+
+/** Delay before the single bounded rotation-race retry, giving the winning
+ *  tab's Set-Cookie time to land in the shared jar. */
+export const ROTATION_RACE_RETRY_DELAY_MS = 200;
+
+function invalidateSessionAfterRejection(err: unknown): void {
+  // Only clear the in-memory token / identity on a CONFIRMED 401. Transient
+  // failures (network, timeout, 5xx, CSRF) keep the local state intact so
+  // reconnecting restores the session without a forced logout.
+  if (isConfirmedSessionRejection(err)) {
+    setAccessToken(null);
+    sessionInvalidationHandler?.();
+  } else {
+    // Keep historical behaviour for transient failures: don't hold a stale
+    // in-memory token that can no longer be used, but never invalidate the
+    // persisted session/identity.
+    setAccessToken(null);
+  }
+}
+
 // Single-flight: only one refresh is ever in flight at a time. Concurrent 401s
 // share the same refresh instead of spamming /api/auth/refresh.
 let refreshPromise: Promise<boolean> | null = null;
@@ -123,20 +182,31 @@ function refreshAccessTokenSingleFlight(): Promise<boolean> {
     return Promise.resolve(false);
   }
   if (!refreshPromise) {
-    refreshPromise = refresh()
-      .then(() => {
+    refreshPromise = (async () => {
+      try {
+        await refresh();
         notifyTokenRotated();
         return true;
-      })
-      .catch((err) => {
-        // Network errors should not clear tokens in a way that breaks offline state
-        // Only clear if it's a server error indicating invalid session
-        setAccessToken(null);
+      } catch (err) {
+        if (isRotationRaceRejection(err)) {
+          // One bounded retry for the confirmed multi-tab double-refresh race.
+          // Nothing else is ever retried — a definitive 401 must not be hammered.
+          await new Promise((resolve) => setTimeout(resolve, ROTATION_RACE_RETRY_DELAY_MS));
+          try {
+            await refresh();
+            notifyTokenRotated();
+            return true;
+          } catch (retryErr) {
+            invalidateSessionAfterRejection(retryErr);
+            return false;
+          }
+        }
+        invalidateSessionAfterRejection(err);
         return false;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
   }
   return refreshPromise;
 }
@@ -147,6 +217,21 @@ function refreshAccessTokenSingleFlight(): Promise<boolean> {
  */
 export function refreshTokenIfNeeded(): Promise<boolean> {
   return refreshAccessTokenSingleFlight();
+}
+
+/**
+ * Resolve a usable access token for transports that cannot use `authedFetch`
+ * directly (e.g. XMLHttpRequest, where upload progress events matter more than
+ * automatic retry plumbing). Returns the in-memory token, or performs one
+ * single-flight refresh when none is held (fresh page reload, expired token).
+ * Resolves `null` when no session could be established — callers may then
+ * proceed without a header and let the server decide, or fail fast.
+ */
+export async function getValidAccessToken(): Promise<string | null> {
+  const existing = getAccessToken();
+  if (existing) return existing;
+  const refreshed = await refreshAccessTokenSingleFlight();
+  return refreshed ? getAccessToken() : null;
 }
 
 function buildAuthHeaders(existing: HeadersInit | undefined): Headers {

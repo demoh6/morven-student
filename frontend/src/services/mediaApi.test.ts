@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAccessToken } from '@/pages/auth/authApi';
 import {
   ACCEPTED_VIDEO_EXTENSIONS,
   MAX_VIDEO_SIZE_MB,
@@ -29,8 +30,12 @@ class FakeXHR {
   response: unknown = null;
   status = 0;
   sentBody: FormData | null = null;
+  headers: Record<string, string> = {};
 
   open = vi.fn();
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value;
+  }
   send(body: FormData) {
     FakeXHR.instances.push(this);
     this.sentBody = body;
@@ -47,6 +52,7 @@ class FakeXHR {
 }
 
 const API_BASE_URL = 'http://test-api.local'; // matches vitest.config env
+const AUTH_HEADER = 'Bearer media-test-token';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -63,14 +69,24 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
   });
 }
 
+function fetchAuthHeader(callIndex: number, fetchMock: ReturnType<typeof vi.fn>): string | null {
+  const init = fetchMock.mock.calls[callIndex]?.[1] as RequestInit | undefined;
+  if (!init?.headers) return null;
+  return new Headers(init.headers).get('Authorization');
+}
+
 beforeEach(() => {
   vi.stubGlobal('XMLHttpRequest', FakeXHR as unknown as typeof XMLHttpRequest);
+  // The media transport must work for an authenticated session WITHOUT
+  // triggering a refresh (a held token short-circuits getValidAccessToken).
+  setAccessToken('media-test-token');
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
+  setAccessToken(null);
   FakeXHR.instances = [];
 });
 
@@ -90,6 +106,7 @@ describe('toArabicMediaError', () => {
       ['STORAGE_ERROR', /مساحة تخزين/],
       ['JOB_NOT_FOUND', /انتهت صلاحية/],
       ['JOB_PROCESSING', /ما زالت المعالجة جارية/],
+      ['SESSION_EXPIRED', /انتهت صلاحية الجلسة/],
     ];
     for (const [code, pattern] of cases) {
       expect(toArabicMediaError(new MediaApiError(code, 'raw detail'))).toMatch(pattern);
@@ -400,6 +417,156 @@ describe('cancelMediaJob', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(cancelMediaJob('job-y')).resolves.toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* authenticated media transport (production 401 regression)           */
+/* ------------------------------------------------------------------ */
+
+describe('authenticated media transport', () => {
+  it('attaches Authorization to the upload XHR and never a manual Content-Type', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ status: 'done', fileName: 'a.mp3' }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(['a']), {
+          status: 200,
+          headers: { 'Content-Disposition': 'attachment; filename="a.mp3"' },
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = extractAudioFromVideo(makeVideoFile(), { format: 'mp3', quality: 'high' }, undefined, {});
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(1));
+    const xhr = FakeXHR.last();
+    xhr.respond(202, { jobId: 'auth-job' });
+    await promise;
+
+    expect(xhr.headers['Authorization']).toBe(AUTH_HEADER);
+    // The browser must own the multipart boundary — no manual Content-Type.
+    expect(xhr.headers['Content-Type']).toBeUndefined();
+  });
+
+  it('sends Authorization on the poll, download and cancel requests', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ status: 'done', fileName: 'a.mp3' }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(['a']), {
+          status: 200,
+          headers: { 'Content-Disposition': 'attachment; filename="a.mp3"' },
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = extractAudioFromVideo(makeVideoFile(), { format: 'mp3', quality: 'high' }, undefined, {});
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(1));
+    FakeXHR.last().respond(202, { jobId: 'auth-job-2' });
+    await promise;
+
+    expect(fetchAuthHeader(0, fetchMock)).toBe(AUTH_HEADER); // status poll
+    expect(fetchAuthHeader(1, fetchMock)).toBe(AUTH_HEADER); // download
+
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    await expect(cancelMediaJob('auth-job-2')).resolves.toBe(true);
+    expect(fetchAuthHeader(2, fetchMock)).toBe(AUTH_HEADER); // DELETE
+    expect(fetchMock.mock.calls[2][0]).toContain('/api/media/jobs/auth-job-2');
+  });
+
+  it('refreshes once and replays the upload when the access token is expired', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/auth/refresh')) {
+        return Promise.resolve(
+          jsonResponse({ user: { id: 'u1' }, accessToken: 'fresh-media-token' }, 200, {
+            'Set-Cookie': 'morven_csrf_token=csrf2; Path=/',
+          })
+        );
+      }
+      if (url.includes('/status')) return Promise.resolve(jsonResponse({ status: 'done' }));
+      if (url.includes('/download')) {
+        return Promise.resolve(
+          new Response(new Blob(['a']), {
+            status: 200,
+            headers: { 'Content-Disposition': 'attachment; filename="a.mp3"' },
+          })
+        );
+      }
+      return Promise.resolve(jsonResponse({ error: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = extractAudioFromVideo(makeVideoFile(), { format: 'mp3', quality: 'high' }, undefined, {});
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(1));
+    FakeXHR.last().respond(401, { error: 'رمز الوصول غير صالح' });
+
+    // Retry attempt with the refreshed token.
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(2));
+    expect(FakeXHR.instances[0].headers['Authorization']).toBe(AUTH_HEADER);
+    expect(FakeXHR.instances[1].headers['Authorization']).toBe('Bearer fresh-media-token');
+
+    FakeXHR.last().respond(202, { jobId: 'retried-job' });
+    await promise;
+
+    const refreshCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/auth/refresh'));
+    expect(refreshCalls).toHaveLength(1);
+  });
+
+  it('gives up with SESSION_EXPIRED when refresh cannot recover the upload', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/auth/refresh')) {
+        return Promise.resolve(jsonResponse({ error: 'رمز التحديث غير صالح أو منتهي الصلاحية' }, 401));
+      }
+      return Promise.resolve(jsonResponse({ error: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = extractAudioFromVideo(makeVideoFile(), { format: 'mp3', quality: 'high' }, undefined, {});
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(1));
+    FakeXHR.last().respond(401, { error: 'غير مصرح' });
+
+    await expect(promise).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    // Bounded: exactly one replay attempt, never a retry storm.
+    expect(FakeXHR.instances).toHaveLength(1);
+    const refreshCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/auth/refresh'));
+    expect(refreshCalls).toHaveLength(1);
+    await expect(promise.catch((err: unknown) => toArabicMediaError(err))).resolves.toMatch(
+      /انتهت صلاحية الجلسة/
+    );
+  });
+
+  it('maps SESSION_EXPIRED to a clear Arabic login prompt', () => {
+    expect(toArabicMediaError(new MediaApiError('SESSION_EXPIRED', 'raw'))).toMatch(
+      /تسجيل الدخول مجددًا/
+    );
+  });
+
+  it('aborts polling with SESSION_EXPIRED instead of spinning when the session dies mid-job', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/auth/refresh')) {
+        return Promise.resolve(jsonResponse({ error: 'رمز التحديث غير صالح' }, 401));
+      }
+      // The protected status endpoint keeps rejecting: refresh failed, so
+      // authedFetch returns the original 401 response.
+      return Promise.resolve(jsonResponse({ error: 'غير مصرح' }, 401));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = compressVideoFile(makeVideoFile(), 'light', undefined, {});
+    const assertion = expect(promise).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+
+    await vi.waitFor(() => expect(FakeXHR.instances.length).toBe(1));
+    FakeXHR.last().respond(202, { jobId: 'dying-job' });
+
+    await vi.advanceTimersByTimeAsync(1200); // first status poll -> 401
+    await assertion;
+
+    // One refresh attempt total (single-flight), no 25-minute 401 spin.
+    const refreshCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/auth/refresh'));
+    expect(refreshCalls).toHaveLength(1);
   });
 });
 
