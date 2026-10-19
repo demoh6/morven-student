@@ -37,6 +37,7 @@ interface PomodoroStore extends PomodoroSnapshot {
   resume: () => void;
   reset: () => void;
   skip: () => void;
+  finishFocus: () => void;
   tick: () => void;
   setMode: (mode: PomodoroMode) => void;
   setSettings: (settings: PomodoroSettings) => void;
@@ -190,7 +191,13 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     completedMessage,
   });
 };
-  const finish = () => {
+  // End the current phase. `credit` controls whether a *focus* session is
+  // recorded: it is true only for genuine completions (countdown reaching zero,
+  // or pausing exactly at zero). Skipping a focus session calls this with
+  // `credit = false`, which still advances to the break phase but records NO
+  // focus time, session count, statistics change, or server sync. Breaks always
+  // advance normally regardless of `credit`.
+  const finish = (credit = true) => {
     const state = get();
     const isFocus = state.mode === 'focus';
     const reachedLongBreak = isFocus && state.currentSession + 1 >= state.settings.sessionsUntilLongBreak;
@@ -198,6 +205,9 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     // Count Up has no fixed duration: a finished focus session is credited with
     // the actual time counted up. Countdown keeps its configured duration.
     const focusedSeconds = isCountUp(state) ? elapsedSeconds(state) : state.settings.focusDuration * 60;
+    // Only a legitimately completed focus session may contribute to focus
+    // hours, session counts, statistics, or rankings.
+    const recordFocus = isFocus && credit;
     const next: PomodoroSnapshot = {
       ...state,
       mode: nextMode,
@@ -205,15 +215,19 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
       isRunning: false,
       isPaused: false,
       endTimestamp: null,
-      currentSession: isFocus ? (reachedLongBreak ? 0 : state.currentSession + 1) : state.currentSession,
-      completedSessions: isFocus ? state.completedSessions + 1 : state.completedSessions,
-      totalFocusSeconds: isFocus ? state.totalFocusSeconds + focusedSeconds : state.totalFocusSeconds,
-      lastFocusSeconds: isFocus ? focusedSeconds : state.lastFocusSeconds,
+      currentSession: recordFocus ? (reachedLongBreak ? 0 : state.currentSession + 1) : state.currentSession,
+      completedSessions: recordFocus ? state.completedSessions + 1 : state.completedSessions,
+      totalFocusSeconds: recordFocus ? state.totalFocusSeconds + focusedSeconds : state.totalFocusSeconds,
+      lastFocusSeconds: recordFocus ? focusedSeconds : state.lastFocusSeconds,
     };
-    update(next, isFocus ? 'break' : 'focus');
-    notifyCompletion(isFocus ? 'break' : 'focus');
+    // A break completion still announces the next focus phase; a skipped focus
+    // session is not a completion and stays silent.
+    update(next, isFocus ? (recordFocus ? 'break' : null) : 'focus');
+    if (!isFocus || recordFocus) {
+      notifyCompletion(isFocus ? 'break' : 'focus');
+    }
     // Fire-and-forget: record completed focus session on server for cross-device sync
-    if (isFocus) syncPomodoroSession(focusedSeconds).catch(() => {});
+    if (recordFocus) syncPomodoroSession(focusedSeconds).catch(() => {});
   };
 
   return {
@@ -246,6 +260,10 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     resume: () => get().start(),
     reset: () => {
       const state = get();
+      // Reset discards the current session WITHOUT recording any focus time.
+      // An incomplete focus session is never a completion, so it must not
+      // change focus hours, session counts, statistics, rankings, or the
+      // server. The timer simply returns to its fresh state in the same mode.
       const next: PomodoroSnapshot = {
         ...state,
         timeRemaining: isCountUp(state) ? 0 : durationFor(state.mode, state.settings),
@@ -253,44 +271,30 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
         isPaused: false,
         endTimestamp: null,
       };
-      // Record the focused/elapsed study time first (like Skip), then reset the
-      // session back to its initial (not running) state. Only focus sessions
-      // with actually-elapsed time are credited; breaks and fresh sessions are
-      // a plain reset with no recording and no phantom completed session.
-      if (state.mode === 'focus') {
-        let focusedSeconds: number;
-        if (isCountUp(state)) {
-          // Count Up: the currently counted time (running or frozen while paused).
-          focusedSeconds = elapsedSeconds(state);
-        } else {
-          // Countdown: the time actually spent so far (full duration - remaining).
-          const remaining = state.isRunning ? remainingSeconds(state) : state.timeRemaining;
-          focusedSeconds = Math.max(0, Math.min(state.settings.focusDuration * 60 - remaining, state.settings.focusDuration * 60));
-        }
-        if (focusedSeconds > 0) {
-          const reachedLongBreak = state.currentSession + 1 >= state.settings.sessionsUntilLongBreak;
-          const credited: PomodoroSnapshot = {
-            ...next,
-            currentSession: reachedLongBreak ? 0 : state.currentSession + 1,
-            completedSessions: state.completedSessions + 1,
-            totalFocusSeconds: state.totalFocusSeconds + focusedSeconds,
-            lastFocusSeconds: focusedSeconds,
-          };
-          update(credited);
-          // Fire-and-forget: record the credited focus time for cross-device sync.
-          syncPomodoroSession(focusedSeconds).catch(() => {});
-          return;
-        }
-      }
       update(next);
     },
-    skip: () => finish(),
+    // Skip a focus session without crediting it (discard); breaks advance as
+    // they always have.
+    skip: () => finish(false),
+    // Manually complete the current Count Up focus session, crediting exactly
+    // the time counted up via the same completion flow (stats + server sync).
+    // Only an in-progress Count Up focus session can be finished: Countdown has
+    // its own automatic completion, breaks are never credited, and a session
+    // with nothing counted up yet must not create a phantom session. After
+    // `finish(true)` the mode has advanced, so repeated clicks / double-fires /
+    // any later call are no-ops — never a duplicate credit or synchronization.
+    finishFocus: () => {
+      const state = get();
+      if (!isCountUp(state) || state.mode !== 'focus') return;
+      if (elapsedSeconds(state) <= 0) return;
+      finish(true);
+    },
     tick: () => {
       const state = get();
       if (!state.isRunning || !state.endTimestamp) return;
       if (isCountUp(state)) {
         // Count Up never finishes automatically — it keeps counting until the
-        // user manually pauses, resets, or skips.
+        // user manually finishes, pauses, resets, or skips.
         const elapsed = elapsedSeconds(state);
         if (elapsed !== state.timeRemaining) {
           set({ ...state, timeRemaining: elapsed });

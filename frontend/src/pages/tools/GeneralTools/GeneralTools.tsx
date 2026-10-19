@@ -191,6 +191,7 @@ function PomodoroTimer() {
   const resume = usePomodoroStore((s) => s.resume);
   const reset = usePomodoroStore((s) => s.reset);
   const skip = usePomodoroStore((s) => s.skip);
+  const finishFocus = usePomodoroStore((s) => s.finishFocus);
   const setMode = usePomodoroStore((s) => s.setMode);
   const setSettings = usePomodoroStore((s) => s.setSettings);
   const setTheme = usePomodoroStore((s) => s.setTheme);
@@ -199,6 +200,10 @@ function PomodoroTimer() {
   // Theme is presentation-only: it never touches the timer state machine.
   const displayTheme: PomodoroTheme = settings.theme ?? 'classic';
   const isCountUp = settings.timerMode === 'countup';
+  // Count Up has no automatic completion: a manual "Finish Focus" action is
+  // offered whenever there is elapsed time to credit (running, or paused with
+  // some time counted). Countdown keeps its automatic completion.
+  const canFinishFocus = isCountUp && currentMode === 'focus' && (isRunning || (isPaused && timeRemaining > 0));
   const totalDuration = currentMode === 'focus' ? settings.focusDuration * 60 : currentMode === 'break' ? settings.breakDuration * 60 : settings.longBreakDuration * 60;
 
   const handleSaveSettings = (newSettings: PomodoroSettings) => {
@@ -572,6 +577,11 @@ function PomodoroTimer() {
             {'استئناف'}
           </Button>
         )}
+        {canFinishFocus && (
+          <Button size="lg" variant="success" onClick={finishFocus}>
+            {'إنهاء التركيز'}
+          </Button>
+        )}
         <Button size="lg" variant="ghost" onClick={reset}>
           {'إعادة تعيين'}
         </Button>
@@ -688,6 +698,15 @@ function PomodoroTimer() {
                       {'استئناف'}
                     </button>
                   )}
+                  {canFinishFocus && (
+                    <button
+                      type="button"
+                      onClick={finishFocus}
+                      className="px-8 py-3 text-[17px] rounded-lg bg-emerald-500/80 hover:bg-emerald-500 backdrop-blur-sm text-white transition-colors"
+                    >
+                      {'إنهاء التركيز'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={reset}
@@ -764,6 +783,15 @@ function PomodoroTimer() {
                       className="px-8 py-3 text-[17px] rounded-lg bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white transition-colors"
                     >
                       {'استئناف'}
+                    </button>
+                  )}
+                  {canFinishFocus && (
+                    <button
+                      type="button"
+                      onClick={finishFocus}
+                      className="px-8 py-3 text-[17px] rounded-lg bg-emerald-500/80 hover:bg-emerald-500 backdrop-blur-sm text-white transition-colors"
+                    >
+                      {'إنهاء التركيز'}
                     </button>
                   )}
                   <button

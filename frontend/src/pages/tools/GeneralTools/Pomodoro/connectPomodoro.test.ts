@@ -106,6 +106,158 @@ describe('connectPomodoro cross-group submission', () => {
   });
 });
 
+describe('connectPomodoro only credits genuinely completed focus sessions', () => {
+  beforeEach(() => {
+    // Real countdown settings so store actions behave like production.
+    usePomodoroStore.setState({
+      mode: 'focus',
+      timeRemaining: 25 * 60,
+      isRunning: false,
+      isPaused: false,
+      currentSession: 0,
+      completedSessions: 0,
+      totalFocusSeconds: 0,
+      lastFocusSeconds: 0,
+      endTimestamp: null,
+      settings: {
+        focusDuration: 25,
+        breakDuration: 5,
+        longBreakDuration: 15,
+        sessionsUntilLongBreak: 4,
+        theme: 'classic',
+        timerMode: 'countdown',
+      },
+    } as never);
+  });
+
+  it('does NOT submit a group session when a running focus session is reset', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    usePomodoroStore.getState().start();
+    usePomodoroStore.getState().reset();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(usePomodoroStore.getState().completedSessions).toBe(0);
+    expect(mockSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does NOT submit a group session when a running focus session is skipped', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    usePomodoroStore.getState().start();
+    usePomodoroStore.getState().skip();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(usePomodoroStore.getState().completedSessions).toBe(0);
+    expect(mockSubmit).not.toHaveBeenCalled();
+  });
+
+  it('submits a group session when a countdown focus session completes normally', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // A focus session already at its end: one tick completes it.
+    usePomodoroStore.setState({ isRunning: true, endTimestamp: Date.now() - 1000, timeRemaining: 1 } as never);
+    usePomodoroStore.getState().tick();
+
+    await vi.waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(usePomodoroStore.getState().completedSessions).toBe(1);
+    const groupIds = mockSubmit.mock.calls.map(([data]) => data.groupId);
+    expect(groupIds).toContain('g1');
+  });
+});
+
+describe('connectPomodoro Count Up manual finish', () => {
+  beforeEach(() => {
+    usePomodoroStore.setState({
+      mode: 'focus',
+      timeRemaining: 0,
+      isRunning: false,
+      isPaused: false,
+      currentSession: 0,
+      completedSessions: 0,
+      totalFocusSeconds: 0,
+      lastFocusSeconds: 0,
+      endTimestamp: null,
+      settings: {
+        focusDuration: 25,
+        breakDuration: 5,
+        longBreakDuration: 15,
+        sessionsUntilLongBreak: 4,
+        theme: 'classic',
+        timerMode: 'countup',
+      },
+    } as never);
+  });
+
+  it('submits the elapsed Count Up time exactly once when Finish Focus is clicked', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    usePomodoroStore.getState().start();
+    // Running Count Up with ~12 minutes already counted.
+    usePomodoroStore.setState({ endTimestamp: Date.now() - 12 * 60 * 1000 } as never);
+
+    usePomodoroStore.getState().finishFocus();
+
+    await vi.waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+
+    const groupIds = mockSubmit.mock.calls.map(([data]) => data.groupId);
+    expect(groupIds).toContain('g1');
+    expect(usePomodoroStore.getState().completedSessions).toBe(1);
+    // The credited duration is the actual counted-up time, not the nominal 25m.
+    const duration = mockSubmit.mock.calls[0][0].durationSeconds;
+    expect(duration).toBeGreaterThanOrEqual(12 * 60);
+    expect(duration).toBeLessThanOrEqual(12 * 60 + 2);
+  });
+
+  it('repeated Finish Focus clicks never submit a duplicate session', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Paused Count Up with a frozen 15 minutes to credit.
+    usePomodoroStore.setState({
+      isRunning: false,
+      isPaused: true,
+      timeRemaining: 15 * 60,
+      endTimestamp: null,
+    } as never);
+
+    usePomodoroStore.getState().finishFocus();
+    usePomodoroStore.getState().finishFocus();
+    usePomodoroStore.getState().finishFocus();
+
+    await vi.waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(usePomodoroStore.getState().completedSessions).toBe(1);
+    // Exactly one completion => exactly one submit per target group.
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT submit when a Count Up session is skipped or reset', async () => {
+    mockListGroups.mockResolvedValue({ groups: [{ id: 'g1' } as never] });
+    startCompletionPolling();
+    await new Promise((r) => setTimeout(r, 50));
+
+    usePomodoroStore.getState().start();
+    usePomodoroStore.setState({ endTimestamp: Date.now() - 5 * 60 * 1000 } as never);
+    usePomodoroStore.getState().skip();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(usePomodoroStore.getState().completedSessions).toBe(0);
+    expect(mockSubmit).not.toHaveBeenCalled();
+  });
+});
+
 describe('focusing resilience & self-repair', () => {
   afterEach(() => {
     vi.useRealTimers();
